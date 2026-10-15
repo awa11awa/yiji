@@ -7,6 +7,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 
+enum class IngestDisposition { PENDING, IGNORED, DUPLICATE }
+data class IngestResult(val id: String, val disposition: IngestDisposition)
+
 class Repository(val database: YijiDatabase, val preferences: Preferences, private val reminders: ReminderScheduler) {
     val dao = database.dao()
     private val lock = Mutex()
@@ -15,15 +18,18 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     val rawMessages = dao.observeRaw()
     val suggestions = dao.observeSuggestions()
 
-    suspend fun ingest(title: String, body: String, source: String, packageName: String = "manual", receivedAt: Long = System.currentTimeMillis()): String = lock.withLock {
+    suspend fun ingest(title: String, body: String, source: String, packageName: String = "manual", receivedAt: Long = System.currentTimeMillis()): String =
+        ingestWithResult(title, body, source, packageName, receivedAt).id
+
+    suspend fun ingestWithResult(title: String, body: String, source: String, packageName: String = "manual", receivedAt: Long = System.currentTimeMillis()): IngestResult = lock.withLock {
         require(body.isNotBlank() || title.isNotBlank()) { "通知文本不能为空" }
         require(body.length <= 16000 && title.length <= 200) { "通知内容过长，请分段导入" }
         val fingerprint = MessageDigest.getInstance("SHA-256").digest("$packageName|$title|$body".toByteArray()).joinToString("") { "%02x".format(it) }
-        if (packageName != "manual") dao.recentDuplicate(fingerprint, receivedAt - 86_400_000)?.let { return@withLock it.id }
+        if (packageName != "manual") dao.recentDuplicate(fingerprint, receivedAt - 86_400_000)?.let { return@withLock IngestResult(it.id, IngestDisposition.DUPLICATE) }
         var raw = RawMessage(title = title, body = body, source = source, packageName = packageName, receivedAt = receivedAt, fingerprint = fingerprint)
         if (packageName != "manual" && !RuleParser.isImportant(body, title)) {
             raw = raw.copy(state = "IGNORED", info = "未识别出明确事项，可查看原文，或粘贴导入后手动核对")
-            dao.putRaw(raw); return@withLock raw.id
+            dao.putRaw(raw); return@withLock IngestResult(raw.id, IngestDisposition.IGNORED)
         }
         var draft = RuleParser.parse(title, body, receivedAt)
         var engine = "本地规则"
@@ -39,7 +45,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
             endAt = draft.endAt, dueAt = draft.dueAt, location = draft.location, action = draft.action,
             note = draft.note, issues = draft.issues.joinToString("\n"), reason = match.reason, engine = engine)
         database.withTransaction { dao.putRaw(raw); dao.putSuggestion(suggestion) }
-        raw.id
+        IngestResult(raw.id, IngestDisposition.PENDING)
     }
 
     suspend fun confirm(suggestionId: String, draft: Draft, type: String, targetId: String?, reminder: Int, expectedTargetUpdatedAt: Long? = null): String = lock.withLock {

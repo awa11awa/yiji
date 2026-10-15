@@ -26,18 +26,27 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.yiji.app.BuildConfig
+import cn.yiji.app.YijiApplication
 import cn.yiji.app.data.Repository
 import cn.yiji.app.data.readLimited
 import cn.yiji.app.platform.ReminderScheduler
+import cn.yiji.app.platform.YijiNotificationListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
     val context = LocalContext.current
     val prefs = repository.preferences
+    val monitor = (context.applicationContext as YijiApplication).notificationMonitor
+    val notificationStatus by monitor.status.collectAsStateWithLifecycle()
+    val recordTime = remember { DateTimeFormatter.ofPattern("MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current
     var revision by remember { mutableIntStateOf(0) }
@@ -53,9 +62,13 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
     var clearDialog by remember { mutableStateOf(false) }
     var restoreText by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var showAllRecords by remember { mutableStateOf(false) }
     val authorized = remember(revision) { NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName) }
     val notificationAllowed = remember(revision) { NotificationManagerCompat.from(context).areNotificationsEnabled() }
     val exactAllowed = remember(revision) { ReminderScheduler(context).exactAllowed() }
+    LaunchedEffect(authorized, collecting, packages, revision) {
+        if (authorized && collecting && packages.isNotEmpty()) YijiNotificationListener.reconnectAndRecover(context)
+    }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) {
             revision++; scope.launch { repository.reschedule() }
@@ -98,12 +111,40 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
             if (!authorized) OutlinedButton(onClick = { consent = true }, modifier = Modifier.fillMaxWidth()) { Text("授权读取系统通知") }
             else Text("通知读取权限已开启", color = MaterialTheme.colorScheme.primary)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("采集选定应用"); Text(if (collecting) "正在接收新的通知" else "采集已暂停", style = MaterialTheme.typography.bodySmall) }
+                Column(Modifier.weight(1f)) {
+                    Text("采集选定应用")
+                    Text(when {
+                        !collecting -> "采集已暂停"
+                        !authorized -> "请开启通知读取权限"
+                        packages.isEmpty() -> "请先选择来源应用"
+                        notificationStatus.connected -> "通知监听已连接"
+                        else -> "通知监听未连接，请尝试重新连接"
+                    }, style = MaterialTheme.typography.bodySmall)
+                }
                 Switch(collecting, { value -> if (value && !authorized) consent = true else { collecting = value; prefs.collecting = value } })
             }
             OutlinedButton(onClick = { sourceDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("选择来源 · 已选 ${packages.size} 个应用") }
+            OutlinedButton(onClick = {
+                YijiNotificationListener.reconnectAndRecover(context)
+                scope.launch { snackbar.showSnackbar("已请求连接或补采，请查看处理记录") }
+            }, enabled = authorized && collecting && packages.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("重新连接并补采通知栏") }
+            Text("只补采通知栏中仍保留的文字。相同来源应用、标题与正文在 24 小时内自动去重。", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(keywords, { keywords = it }, Modifier.fillMaxWidth(), label = { Text("忽略关键词（每行一个）") }, minLines = 2)
             TextButton(onClick = { prefs.ignoredWords = keywords; scope.launch { snackbar.showSnackbar("忽略关键词已保存") } }) { Text("保存关键词") }
+        } }
+        item { SettingsSection("通知处理记录") {
+            Text("记录所选来源通知的处理结果，最多保留 20 条，不包含聊天正文。", style = MaterialTheme.typography.bodySmall)
+            if (notificationStatus.records.isEmpty()) Text("尚无记录。开启采集后，请让来源应用收到一条新通知。", style = MaterialTheme.typography.bodyMedium)
+            notificationStatus.records.take(if (showAllRecords) 20 else 5).forEach { record ->
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("${recordTime.format(Instant.ofEpochMilli(record.at))} · ${record.source}", style = MaterialTheme.typography.labelMedium)
+                    Text(record.result, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Row {
+                if (notificationStatus.records.size > 5) TextButton(onClick = { showAllRecords = !showAllRecords }) { Text(if (showAllRecords) "收起" else "查看全部记录") }
+                if (notificationStatus.records.isNotEmpty()) TextButton(onClick = { monitor.clear() }) { Text("清空记录") }
+            }
         } }
         item { SettingsSection("事项提醒") {
             Text(if (notificationAllowed) "提醒通知已允许" else "尚未允许提醒通知", color = if (notificationAllowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
@@ -146,7 +187,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
         }, verticalAlignment = Alignment.CenterVertically) { Checkbox(pkg in packages, onCheckedChange = { checked -> packages = if (checked) packages + pkg else packages - pkg; prefs.packages = packages }); Text(label) } } }
     }, confirmButton = { TextButton(onClick = { sourceDialog = false }) { Text("完成") } })
     if (clearDialog) AlertDialog(onDismissRequest = { clearDialog = false }, title = { Text("清空所有本地数据？") }, text = { Text("将删除所有事项、通知原文和变更历史，并撤销提醒。建议先导出备份。") },
-        confirmButton = { TextButton(onClick = { clearDialog = false; work { repository.clear(); "本地数据已清空" } }) { Text("清空") } }, dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("保留") } })
+        confirmButton = { TextButton(onClick = { clearDialog = false; work { repository.clear(); monitor.clear(); "本地数据已清空" } }) { Text("清空") } }, dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("保留") } })
     if (restoreText != null) AlertDialog(onDismissRequest = { restoreText = null }, title = { Text("恢复备份？") }, text = { Text("备份会替换当前的事项、通知和历史，并重新安排提醒。") },
         confirmButton = { TextButton(onClick = { val data = restoreText!!; restoreText = null; work { repository.restore(data); "备份已恢复" } }) { Text("恢复") } }, dismissButton = { TextButton(onClick = { restoreText = null }) { Text("取消") } })
 }
