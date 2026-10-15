@@ -1,0 +1,131 @@
+name: Build and publish APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - app/build.gradle.kts
+      - .github/workflows/release.yml
+      - RELEASE_NOTES_*.md
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yiji-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version and existing release
+        id: version
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+          text = pathlib.Path("app/build.gradle.kts").read_text()
+          match = re.search(r'versionName\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)"', text)
+          if not match:
+              raise SystemExit("Missing or invalid versionName")
+          version = match[1]
+          tag = "v" + version
+          result = subprocess.run(["gh", "release", "view", tag, "--json", "isDraft"], text=True, capture_output=True)
+          if result.returncode and "release not found" not in result.stderr.lower() and "404" not in result.stderr:
+              raise SystemExit(result.stderr)
+          published = result.returncode == 0 and not json.loads(result.stdout)["isDraft"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\ntag={tag}\npublished={str(published).lower()}\n")
+          print(f"Version: {tag}; already published: {published}")
+          PY
+
+      - uses: actions/setup-java@v4
+        if: steps.version.outputs.published != 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        if: steps.version.outputs.published != 'true'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          sdk = pathlib.Path(os.environ["ANDROID_HOME"])
+          manager = sdk / "cmdline-tools/latest/bin/sdkmanager"
+          subprocess.run([str(manager), "platforms;android-35", "build-tools;35.0.0"], input="y\n" * 100, text=True, check=True)
+          PY
+
+      - name: Test, lint and build
+        if: steps.version.outputs.published != 'true'
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain --max-workers=2 testDebugUnitTest lintDebug assembleDebug
+
+      - name: Prepare verified release assets
+        if: steps.version.outputs.published != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib, shutil, subprocess, xml.etree.ElementTree as ET
+          version, tag = os.environ["VERSION"], os.environ["TAG"]
+          target = pathlib.Path("release-artifacts")
+          target.mkdir(exist_ok=True)
+          apk = target / f"yiji-{tag}-debug.apk"
+          shutil.copyfile("app/build/outputs/apk/debug/app-debug.apk", apk)
+          tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
+          subprocess.run([str(tools / "apksigner"), "verify", "--print-certs", str(apk)], check=True)
+          badging = subprocess.check_output([str(tools / "aapt"), "dump", "badging", str(apk)], text=True)
+          if f"versionName='{version}'" not in badging:
+              raise SystemExit("APK version does not match release tag")
+          source = target / f"yiji-{tag}-source.zip"
+          subprocess.run(["git", "archive", "--format=zip", f"--prefix=yiji-{tag}/", "-o", str(source), os.environ["GITHUB_SHA"]], check=True)
+          reports = list(pathlib.Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
+          if not reports:
+              raise SystemExit("Unit test reports are missing")
+          suites = [ET.parse(report).getroot() for report in reports]
+          tests = sum(int(s.attrib["tests"]) for s in suites)
+          failures = sum(int(s.attrib.get("failures", "0")) + int(s.attrib.get("errors", "0")) for s in suites)
+          if failures or tests == 0:
+              raise SystemExit("Unit tests did not pass")
+          lint = ET.parse("app/build/reports/lint-results-debug.xml").getroot()
+          if any(i.attrib["severity"] in ("Error", "Fatal") for i in lint.findall("issue")):
+              raise SystemExit("Lint errors found")
+          notes_path = pathlib.Path(f"RELEASE_NOTES_{tag}.md")
+          notes = notes_path.read_text() if notes_path.exists() else f"# 忆迹 {tag}\n"
+          notes += f"\n\n## 本次发布构建\n\n源码提交：{os.environ['GITHUB_SHA']}。GitHub Actions 验证 {tests} 项测试通过、Lint 无错误，APK 签名与版本校验通过。\n\n本发布包由 CI 独立构建，最终文件校验值以 SHA256SUMS.txt 为准。此包为 Android 调试测试包；升级前请导出并保存备份，如提示签名不一致，再卸载旧版、安装新版并恢复。\n"
+          notes_file = target / f"RELEASE_NOTES_{tag}.md"
+          notes_file.write_text(notes, encoding="utf-8")
+          assets = [apk, source, notes_file]
+          (target / "SHA256SUMS.txt").write_text("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in assets), encoding="utf-8")
+          print(f"Prepared {len(assets) + 1} assets; {tests} tests passed.")
+          PY
+
+      - name: Upload assets and publish release
+        if: steps.version.outputs.published != 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" --json isDraft >/dev/null 2>&1; then
+            gh release upload "$TAG" release-artifacts/* --clobber
+            gh release edit "$TAG" --notes-file "release-artifacts/RELEASE_NOTES_$TAG.md"
+          else
+            gh release create "$TAG" release-artifacts/* --draft --prerelease \
+              --target "$GITHUB_SHA" --title "忆迹 $TAG（开发测试版）" \
+              --notes-file "release-artifacts/RELEASE_NOTES_$TAG.md"
+          fi
+          gh release edit "$TAG" --draft=false --prerelease
