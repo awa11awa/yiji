@@ -30,6 +30,7 @@ object RuleParser {
         val instructed = directive.containsMatchIn(body)
         if (retrospective.containsMatchIn(body) && !future.containsMatchIn(body) && !instructed) return false
         val timed = dateSignal.containsMatchIn(body) || clock.containsMatchIn(body)
+        if (HomeworkRules.isHomework(body, heading)) return HomeworkRules.isAssignment(body, heading, timed)
         val subject = "$body $heading"
         if (changes.containsMatchIn(body) && (eventWords.containsMatchIn(subject) ||
                 campusActions.containsMatchIn(subject) || generalSubjects.containsMatchIn(subject))) return true
@@ -63,20 +64,28 @@ object RuleParser {
         val normalizedBody = normalize(body)
         val normalizedTitle = normalize(title)
         val original = "$normalizedTitle\n$normalizedBody".trim()
+        val homework = HomeworkRules.isHomework(normalizedBody, normalizedTitle)
+        val timeTitle = if (homework) HomeworkRules.temporalText(normalizedTitle) else normalizedTitle
         // A location-only change must not discard the date/time elsewhere in the message.
         val change = Regex("(?:改为|调整至|调整为|延期至|推迟到|推迟至|改到)([^。；;\\n]+)")
             .findAll(normalizedBody).map { it.groupValues[1] }
             .firstOrNull { dateSignal.containsMatchIn(it) || clock.containsMatchIn(it) }
-        val timeText = change ?: normalizedBody
+        // Separate the submission deadline from the time a lesson or assignment was announced.
+        val submission = if (homework) normalizedBody.split(Regex("[，,。；;\\n]")).lastOrNull {
+            Regex("截止|截至|最迟|之前|以前|提交|上交|补交|交齐|交到|交给|上传|前交|交作业|交报告|前\\s*$").containsMatchIn(it) &&
+                (dateSignal.containsMatchIn(it) || clock.containsMatchIn(it))
+        } else null
+        val selectedTimeText = change ?: submission ?: normalizedBody
+        val timeText = if (homework) HomeworkRules.temporalText(selectedTimeText) else selectedTimeText
         val reference = Instant.ofEpochMilli(receivedAt).atZone(zone).toLocalDate()
         val issues = mutableListOf<String>()
         val date = parseDate(timeText, reference, issues) ?: if (!dateSignal.containsMatchIn(timeText))
-            parseDate(normalizedTitle, reference, issues) else null
+            parseDate(timeTitle, reference, issues) else null
         val classificationText = if (keywords.containsMatchIn(normalizedBody)) normalizedBody else original
-        val deadline = Regex("截止|截至|最迟|之前|以前|前提交|前完成|前报名|\\d{1,2}(?:[:：]\\d{2}|[点时](?:半|整|\\d{1,2}分?)?|[日号])\\s*前").containsMatchIn(classificationText) ||
+        val deadline = homework || Regex("截止|截至|最迟|之前|以前|前提交|前完成|前报名|\\d{1,2}(?:[:：]\\d{2}|[点时](?:半|整|\\d{1,2}分?)?|[日号])\\s*前").containsMatchIn(classificationText) ||
             taskWords.containsMatchIn(classificationText) && !Regex("会议|开会|讲座|培训|活动|集合|签到|签退|报到|领取|领书|领证|面试|体检|值班|上课|考试").containsMatchIn(classificationText)
         val kind = if (deadline) "DEADLINE" else "SCHEDULE"
-        val clocks = parseClocks(if (clock.containsMatchIn(timeText)) timeText else normalizedTitle)
+        val clocks = parseClocks(if (clock.containsMatchIn(timeText)) timeText else timeTitle)
         val times = clocks.map { it.time }
         if (date == null) issues += "未识别出日期，请补充"
         if (times.isEmpty()) issues += if (date == null) "未识别出具体时间，请补充" else "已识别日期 $date，请补充具体时间"
@@ -92,10 +101,10 @@ object RuleParser {
         }
         if (start != null && end != null && end <= start) issues += "结束时间不晚于开始时间，请核对"
         val due = if (kind == "DEADLINE") timestamp(times.lastIndex) else null
-        val category = categoryOf(normalizedBody) ?: categoryOf(normalizedTitle) ?: "其他"
+        val category = if (homework) HomeworkRules.CATEGORY else categoryOf(normalizedBody) ?: categoryOf(normalizedTitle) ?: "其他"
         val location = extractLocation(normalizedBody)
         val action = Regex("(?:请|需要|务必|必须|记得|别忘了)([^。；;\\n]{2,100})").find(normalizedBody)?.groupValues?.get(1)?.trim()
-            ?: normalizedBody.split(Regex("[。；;\\n]")).firstOrNull { campusActions.containsMatchIn(it) }?.trim()?.take(200).orEmpty()
+            ?: normalizedBody.split(Regex("[。；;\\n]")).firstOrNull { homework || campusActions.containsMatchIn(it) }?.trim()?.take(2000).orEmpty()
         val name = extractTitle(normalizedTitle, normalizedBody, category)
         return Draft(name, category, kind, start, end, due, location, action, body, issues.distinct())
     }

@@ -1,0 +1,47 @@
+package cn.yiji.app.ui
+
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import cn.yiji.app.MainActivity
+import cn.yiji.app.YijiApplication
+import kotlinx.coroutines.runBlocking
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], application = YijiApplication::class)
+@LooperMode(LooperMode.Mode.PAUSED)
+class HomeworkNavigationTest {
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+
+    @Test fun homeworkTabOpensAnIndependentList() {
+        compose.onNodeWithText("作业").performClick()
+        compose.onNodeWithText("还没有作业").assertIsDisplayed()
+        compose.onNodeWithText("待完成", substring = false).assertIsDisplayed()
+        compose.onNodeWithText("已逾期", substring = false).assertIsDisplayed()
+    }
+
+    @Test fun addingFromHomeworkDefaultsToHomeworkAndDeadline() {
+        compose.onNodeWithText("作业").performClick()
+        compose.onNodeWithContentDescription("添加作业").performClick()
+        compose.onNodeWithText("添加作业").assertIsDisplayed()
+        compose.onNodeWithText("作业").assertIsSelected()
+        compose.onNodeWithText("任务 · 截止时间").assertIsSelected()
+        compose.onNodeWithText("截止时间：待补充时间").assertIsDisplayed()
+    }
+
+    @Test fun incompleteNotificationAppearsOnHomeworkTab() {
+        val repository = (compose.activity.application as YijiApplication).repository
+        runBlocking { repository.ingest("课程群", "请完成C语言实验报告", "微信", "com.tencent.mm") }
+        compose.onNodeWithText("作业").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("待确认作业").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("待确认作业").assertIsDisplayed()
+        compose.onNodeWithText("截止时间待补充").assertIsDisplayed()
+        compose.onNodeWithText("核对作业").performClick()
+        compose.onNodeWithText("识别确认").assertIsDisplayed()
+    }
+}

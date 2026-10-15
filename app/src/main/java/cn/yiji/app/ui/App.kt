@@ -32,13 +32,19 @@ fun typeLabel(type: String): String = when (type) { "MERGE" -> "合并来源"; "
 fun statusLabel(status: String): String = when (status) { "DONE" -> "已完成"; "CANCELLED" -> "已取消"; else -> "进行中" }
 fun eventTime(e: Event): String = if (e.kind == "DEADLINE") "${formatTime(e.dueAt)} 截止" else "${formatTime(e.startAt)} — ${formatTime(e.endAt)}"
 
+enum class AppTab(val title: String, val label: String) {
+    HOME("忆迹", "首页"), EVENTS("我的事项", "事项"), HOMEWORK("作业", "作业"),
+    INBOX("通知箱", "通知箱"), SETTINGS("设置", "设置")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?, consumeIntent: () -> Unit) = YijiTheme {
     val events by repository.events.collectAsStateWithLifecycle(initialValue = emptyList())
     val raw by repository.rawMessages.collectAsStateWithLifecycle(initialValue = emptyList())
     val suggestions by repository.suggestions.collectAsStateWithLifecycle(initialValue = emptyList())
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tabName by rememberSaveable { mutableStateOf(AppTab.HOME.name) }
+    val tab = AppTab.valueOf(tabName)
     var route by rememberSaveable { mutableStateOf("") }
     var pasteText by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -51,16 +57,17 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     }
     BackHandler(route.isNotBlank()) { route = "" }
     fun perform(action: suspend () -> Unit) { scope.launch { try { action() } catch (e: Exception) { snackbar.showSnackbar(e.message ?: "操作未完成，请重试") } } }
-    val titles = listOf("忆迹", "我的事项", "通知箱", "设置")
-    val icons = listOf(Icons.Default.Home, Icons.AutoMirrored.Filled.EventNote, Icons.Default.Inbox, Icons.Default.Settings)
+    val icons = mapOf(AppTab.HOME to Icons.Default.Home, AppTab.EVENTS to Icons.AutoMirrored.Filled.EventNote,
+        AppTab.HOMEWORK to Icons.Default.AutoStories, AppTab.INBOX to Icons.Default.Inbox, AppTab.SETTINGS to Icons.Default.Settings)
     val routeTitle = when {
         route.startsWith("detail:") -> "事项详情"
         route.startsWith("edit:") -> "编辑事项"
         route.startsWith("confirm:") -> "识别确认"
         route == "new" -> "添加事项"
+        route == "newHomework" -> "添加作业"
         route == "paste" -> "导入通知文本"
         route == "conflicts" -> "时间冲突"
-        else -> titles[tab]
+        else -> tab.title
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -71,20 +78,34 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
             if (route.isBlank()) IconButton(onClick = { pasteText = ""; route = "paste" }) { Icon(Icons.Default.ContentPaste, "粘贴通知") }
         }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) },
         bottomBar = { if (route.isBlank()) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-            titles.indices.forEach { i -> NavigationBarItem(selected = tab == i, onClick = { tab = i }, icon = {
-                BadgedBox(badge = { if (i == 2 && suggestions.isNotEmpty()) Badge { Text(suggestions.size.toString()) } }) { Icon(icons[i], titles[i]) }
-            }, label = { Text(if (i == 0) "首页" else titles[i]) }) }
+            AppTab.entries.forEach { item -> NavigationBarItem(selected = tab == item, onClick = { tabName = item.name }, icon = {
+                val count = when (item) {
+                    AppTab.INBOX -> suggestions.size
+                    AppTab.HOMEWORK -> pendingHomework(suggestions).size
+                    else -> 0
+                }
+                BadgedBox(badge = { if (count > 0) Badge { Text(count.toString()) } }) { Icon(icons.getValue(item), item.label) }
+            }, label = { Text(item.label) }) }
         } },
-        floatingActionButton = { if (route.isBlank() && tab in 0..1) FloatingActionButton(onClick = { route = "new" }) { Icon(Icons.Default.Add, "添加事项") } },
+        floatingActionButton = { if (route.isBlank() && tab in setOf(AppTab.HOME, AppTab.EVENTS, AppTab.HOMEWORK)) FloatingActionButton(
+            onClick = { route = if (tab == AppTab.HOMEWORK) "newHomework" else "new" }) {
+            Icon(Icons.Default.Add, if (tab == AppTab.HOMEWORK) "添加作业" else "添加事项")
+        } },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 route == "paste" -> PasteScreen(pasteText, onImport = { title, text, source ->
-                    repository.ingest(title, text, source); route = ""; tab = 2; snackbar.showSnackbar("已导入，请核对识别结果")
+                    val rawId = repository.ingest(title, text, source)
+                    val homework = repository.dao.allSuggestions().any { it.rawId == rawId && it.category == HomeworkRules.CATEGORY }
+                    route = ""; tabName = if (homework) AppTab.HOMEWORK.name else AppTab.INBOX.name
+                    snackbar.showSnackbar("已导入，请核对识别结果")
                 })
-                route == "new" -> EventEditor("new", Draft(), repository.preferences.defaultReminder, events = events, onSave = { d, r, _, _, _ ->
-                    repository.save(d, r); route = ""; tab = 1
-                })
+                route == "new" || route == "newHomework" -> EventEditor(route,
+                    if (route == "newHomework") Draft(category = HomeworkRules.CATEGORY, kind = "DEADLINE") else Draft(),
+                    repository.preferences.defaultReminder, events = events, onSave = { d, r, _, _, _ ->
+                        repository.save(d, r); route = ""
+                        tabName = if (d.category == HomeworkRules.CATEGORY) AppTab.HOMEWORK.name else AppTab.EVENTS.name
+                    })
                 route.startsWith("edit:") -> {
                     val e = events.find { it.id == route.removePrefix("edit:") }
                     if (e != null) EventEditor(e.id, e.draft(), e.reminderMinutes, events = events, onSave = { d, r, _, _, _ ->
@@ -107,10 +128,14 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                     else EmptyState("正在读取事项", "如果事项已被删除，请返回列表。", Icons.AutoMirrored.Filled.EventNote)
                 }
                 route == "conflicts" -> ConflictScreen(conflicts, events) { route = "detail:$it" }
-                tab == 0 -> HomeScreen(events, suggestions.size, conflicts.size, { route = "detail:$it" },
-                    { tab = 2 }, { route = "conflicts" }, { route = "paste" }, { tab = 3 })
-                tab == 1 -> EventsScreen(events) { route = "detail:$it" }
-                tab == 2 -> InboxScreen(raw, suggestions, onConfirm = { route = "confirm:$it" },
+                tab == AppTab.HOME -> HomeScreen(events, suggestions.size, conflicts.size, { route = "detail:$it" },
+                    { tabName = AppTab.INBOX.name }, { route = "conflicts" }, { route = "paste" }, { tabName = AppTab.SETTINGS.name })
+                tab == AppTab.EVENTS -> EventsScreen(events) { route = "detail:$it" }
+                tab == AppTab.HOMEWORK -> HomeworkScreen(events, suggestions, raw,
+                    onEvent = { route = "detail:$it" }, onConfirm = { route = "confirm:$it" },
+                    onDismiss = { perform { repository.dismiss(it) } }, onAdd = { route = "newHomework" },
+                    onPaste = { pasteText = ""; route = "paste" })
+                tab == AppTab.INBOX -> InboxScreen(raw, suggestions, onConfirm = { route = "confirm:$it" },
                     onDismiss = { perform { repository.dismiss(it) } }, onDelete = { perform { repository.deleteRaw(it) } },
                     onPaste = { pasteText = ""; route = "paste" })
                 else -> SettingsScreen(repository, snackbar)
