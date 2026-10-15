@@ -8,13 +8,13 @@ android {
     namespace = "cn.yiji.app"
     compileSdk = 35
     // Optional SDK extension for local installations; no extension APIs are used.
-    compileSdkExtension = (project.findProperty("yiji.sdkExtension") as String?)?.toInt() ?: 0
+    (project.findProperty("yiji.sdkExtension") as String?)?.toInt()?.let { compileSdkExtension = it }
     defaultConfig {
         applicationId = "cn.yiji.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }

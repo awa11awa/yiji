@@ -90,6 +90,22 @@ class RepositoryTest {
         val id = repository.ingest("新消息", "晚饭吃什么", "测试应用", "test.app", reference)
         assertEquals("IGNORED", repository.dao.raw(id)!!.state); assertTrue(repository.dao.allSuggestions().isEmpty())
     }
+    @Test fun campusNotificationCreatesLocalSuggestionWithoutAi() = runBlocking {
+        assertFalse(repository.preferences.aiEnabled)
+        val id = repository.ingest("班级群", "明天14点到301集合，带学生证", "微信", "test.app", reference)
+        assertEquals("PENDING", repository.dao.raw(id)!!.state)
+        val suggestion = repository.dao.allSuggestions().single()
+        assertEquals("本地规则", suggestion.engine)
+        assertEquals("301", suggestion.location)
+        assertNotNull(suggestion.startAt)
+        assertNull(suggestion.endAt)
+        assertTrue(repository.dao.allEvents().isEmpty())
+    }
+    @Test fun groupNameDoesNotPromoteOrdinaryChat() = runBlocking {
+        val id = repository.ingest("数学作业群", "晚饭吃什么", "微信", "test.app", reference)
+        assertEquals("IGNORED", repository.dao.raw(id)!!.state)
+        assertTrue(repository.dao.allSuggestions().isEmpty())
+    }
     @Test fun deletingEventPreservesRawAndRemovesDependentRecords() = runBlocking {
         val (old, raw) = initialEvent()
         repository.delete(old.id)

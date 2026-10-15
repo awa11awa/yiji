@@ -26,6 +26,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import cn.yiji.app.BuildConfig
 import cn.yiji.app.data.Repository
 import cn.yiji.app.data.readLimited
 import cn.yiji.app.platform.ReminderScheduler
@@ -135,7 +136,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
             OutlinedButton(onClick = { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("从备份恢复") }
             TextButton(onClick = { clearDialog = true }, enabled = !busy) { Text("清空本地数据", color = MaterialTheme.colorScheme.error) }
         } }
-        item { Text("忆迹 v1.0.0\n多源通知语义关联与时序冲突检测", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("忆迹 v${BuildConfig.VERSION_NAME}\n多源通知语义关联与时序冲突检测", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
     if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("允许忆迹接收通知") }, text = { Text("系统通知可能包含私人信息。忆迹只处理你选择的来源；本地规则在手机上运行。开启 AI 后，选定通知的标题、正文和进行中事项的基本字段会发送到你配置的服务。你随时可以暂停采集或撤销系统授权。") },
         confirmButton = { TextButton(onClick = { consent = false; openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("前往系统授权") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("稍后") } })

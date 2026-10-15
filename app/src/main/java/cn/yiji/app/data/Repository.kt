@@ -21,8 +21,8 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         val fingerprint = MessageDigest.getInstance("SHA-256").digest("$packageName|$title|$body".toByteArray()).joinToString("") { "%02x".format(it) }
         if (packageName != "manual") dao.recentDuplicate(fingerprint, receivedAt - 86_400_000)?.let { return@withLock it.id }
         var raw = RawMessage(title = title, body = body, source = source, packageName = packageName, receivedAt = receivedAt, fingerprint = fingerprint)
-        if (packageName != "manual" && !RuleParser.isImportant("$title $body")) {
-            raw = raw.copy(state = "IGNORED", info = "未包含本地规则支持的重要事项关键词")
+        if (packageName != "manual" && !RuleParser.isImportant(body, title)) {
+            raw = raw.copy(state = "IGNORED", info = "未识别出明确事项，可查看原文，或粘贴导入后手动核对")
             dao.putRaw(raw); return@withLock raw.id
         }
         var draft = RuleParser.parse(title, body, receivedAt)
