@@ -40,8 +40,8 @@ class HomeworkNavigationTest {
         compose.onNodeWithText("作业").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("待确认作业").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("待确认作业").assertIsDisplayed()
-        compose.onNodeWithText("截止时间待补充").assertIsDisplayed()
-        compose.onNodeWithText("核对作业").performClick()
+        compose.onNodeWithText("截止时间待补充").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("核对作业").performScrollTo().performClick()
         compose.onNodeWithText("识别确认").assertIsDisplayed()
     }
 }
