@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -52,11 +51,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
     var revision by remember { mutableIntStateOf(0) }
     var collecting by remember { mutableStateOf(prefs.collecting) }
     var packages by remember { mutableStateOf(prefs.packages) }
-    var keywords by remember { mutableStateOf(prefs.ignoredWords) }
     var reminder by remember { mutableIntStateOf(prefs.defaultReminder) }
-    var aiEnabled by remember { mutableStateOf(prefs.aiEnabled) }
-    var url by remember { mutableStateOf(prefs.serverUrl) }
-    var token by remember { mutableStateOf(prefs.serverToken) }
     var sourceDialog by remember { mutableStateOf(false) }
     var consent by remember { mutableStateOf(false) }
     var clearDialog by remember { mutableStateOf(false) }
@@ -129,8 +124,6 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
                 scope.launch { snackbar.showSnackbar("已请求连接或补采，请查看处理记录") }
             }, enabled = authorized && collecting && packages.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("重新连接并补采通知栏") }
             Text("只补采通知栏中仍保留的文字。相同来源应用、标题与正文在 24 小时内自动去重。", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(keywords, { keywords = it }, Modifier.fillMaxWidth(), label = { Text("忽略关键词（每行一个）") }, minLines = 2)
-            TextButton(onClick = { prefs.ignoredWords = keywords; scope.launch { snackbar.showSnackbar("忽略关键词已保存") } }) { Text("保存关键词") }
         } }
         item { SettingsSection("通知处理记录") {
             Text("记录所选来源通知的处理结果，最多保留 20 条，不包含聊天正文。", style = MaterialTheme.typography.bodySmall)
@@ -157,29 +150,20 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
             Text("新增事项默认提前提醒", fontWeight = FontWeight.Bold)
             ReminderChips(reminder) { reminder = it; prefs.defaultReminder = it }
         } }
-        item { SettingsSection("AI 增强（可选）") {
-            Text("不开启也能使用本地提取规则。开启后，通知标题、正文和最多 50 件进行中事项的基本字段会发送到你配置的服务，供语义关联；模型密钥保存在服务端。", style = MaterialTheme.typography.bodyMedium)
-            OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth(), label = { Text("服务地址") }, singleLine = true)
-            OutlinedTextField(token, { token = it }, Modifier.fillMaxWidth(), label = { Text("服务访问令牌") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("启用 AI 增强", Modifier.weight(1f)); Switch(aiEnabled, { value ->
-                val error = if (value) prefs.serverUrlError(url) else null
-                if (error != null) scope.launch { snackbar.showSnackbar(error) }
-                else { prefs.serverUrl = url; prefs.serverToken = token; prefs.aiEnabled = value; aiEnabled = value }
-            }) }
-            TextButton(onClick = { val error = prefs.serverUrlError(url)
-                if (error != null) scope.launch { snackbar.showSnackbar(error) }
-                else { prefs.serverUrl = url; prefs.serverToken = token; scope.launch { snackbar.showSnackbar("AI 服务设置已保存") } }
-            }) { Text("保存服务设置") }
+        item { SettingsSection("本地模型") {
+            Text("TinyBERT 4L-312D · 中文日程模型 v2", fontWeight = FontWeight.Bold)
+            Text("模型随安装包内置，在手机上完成通知筛选、事项分类和时间角色识别，无需联网或配置服务。首次识别需要加载模型。", style = MaterialTheme.typography.bodyMedium)
+            Text("当前模型为初始微调版本，请核对识别结果。具体时间尚待通知或需预约的事项会保留为草稿。", style = MaterialTheme.typography.bodySmall)
         } }
         item { SettingsSection("数据与备份") {
-            Text("事项、原文和历史保存在本机。备份包含通知内容，请保存到自己的位置。权限、应用选择和服务令牌不包含在备份内。", style = MaterialTheme.typography.bodyMedium)
+            Text("事项、原文和历史保存在本机。备份包含通知内容，请保存到自己的位置。权限和应用选择不包含在备份内。", style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { export.launch("yiji-backup-${java.time.LocalDate.now()}.json") }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("导出备份") }
             OutlinedButton(onClick = { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("从备份恢复") }
             TextButton(onClick = { clearDialog = true }, enabled = !busy) { Text("清空本地数据", color = MaterialTheme.colorScheme.error) }
         } }
         item { Text("忆迹 v${BuildConfig.VERSION_NAME}\n多源通知语义关联与时序冲突检测", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
-    if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("允许忆迹接收通知") }, text = { Text("系统通知可能包含私人信息。忆迹只处理你选择的来源；本地规则在手机上运行。开启 AI 后，选定通知的标题、正文和进行中事项的基本字段会发送到你配置的服务。你随时可以暂停采集或撤销系统授权。") },
+    if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("允许忆迹接收通知") }, text = { Text("系统通知可能包含私人信息。忆迹只处理你选择的来源；TinyBERT 模型在手机上运行，通知内容保存在本机。你随时可以暂停采集或撤销系统授权。") },
         confirmButton = { TextButton(onClick = { consent = false; openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("前往系统授权") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("稍后") } })
     if (sourceDialog) AlertDialog(onDismissRequest = { sourceDialog = false }, title = { Text("选择通知来源") }, text = {
         LazyColumn(Modifier.heightIn(max = 360.dp)) { items(apps, key = { it.first }) { (pkg, label) -> Row(Modifier.fillMaxWidth().clickable {

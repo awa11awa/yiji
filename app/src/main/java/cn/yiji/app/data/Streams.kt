@@ -9,7 +9,7 @@ fun InputStream.readLimited(limit: Int): ByteArray {
     while (true) {
         val count = read(buffer)
         if (count < 0) break
-        require(output.size() + count <= limit) { "文件或响应内容过大" }
+        require(output.size() + count <= limit) { "文件内容过大" }
         output.write(buffer, 0, count)
     }
     return output.toByteArray()

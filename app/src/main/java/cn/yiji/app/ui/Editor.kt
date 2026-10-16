@@ -55,7 +55,7 @@ fun PasteScreen(initial: String, onImport: suspend (String, String, String) -> U
             Triple("竞赛培训", "因场地维修，竞赛培训取消，请同学们知悉。", "学院通知"),
         )
         examples.forEach { (name, text, label) -> OutlinedButton(onClick = { title = name; body = text; source = label; error = null }, modifier = Modifier.fillMaxWidth()) { Text(if (text.contains("延期")) "$name · 改期" else if (text.contains("取消")) "$name · 取消" else name) } }
-        Text("每次导入一件主要事项；包含多项安排的长通知建议分段导入。", style = MaterialTheme.typography.bodySmall)
+        Text("模型会将日程与截止时间拆成多条草稿，请在通知箱逐项核对。", style = MaterialTheme.typography.bodySmall)
     }
 }
 

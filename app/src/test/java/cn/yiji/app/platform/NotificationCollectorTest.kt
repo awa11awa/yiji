@@ -92,13 +92,14 @@ class NotificationCollectorTest {
         val n = notification("2条新消息", summary = true)
         n.extras.putCharSequenceArray(Notification.EXTRA_TEXT_LINES, arrayOf("登录验证码123456", second))
         collector.collect(sbn(n), "微信")
-        assertEquals(second, repository.dao.allRaw().single().body)
-        assertTrue(monitor.status.value.records.first().result.contains("1条被关键词过滤"))
+        assertEquals(setOf("登录验证码123456", second), repository.dao.allRaw().map { it.body }.toSet())
+        assertEquals("IGNORED", repository.dao.allRaw().single { it.body == "登录验证码123456" }.state)
+        assertTrue(monitor.status.value.records.first().result.contains("1条已忽略"))
     }
 
     @Test fun oldMessagingNoiseDoesNotDiscardAnotherMessage() = runBlocking {
         collector.collect(sbn(conversation("登录验证码123456", first), time + 1000), "微信")
-        assertEquals(first, repository.dao.allRaw().single().body)
+        assertEquals(setOf("登录验证码123456", first), repository.dao.allRaw().map { it.body }.toSet())
         assertEquals(1, repository.dao.allSuggestions().size)
     }
 
@@ -119,7 +120,9 @@ class NotificationCollectorTest {
     @Test fun titleOnlyNotificationKeepsItsOriginalText() = runBlocking {
         collector.collect(sbn(notification("", title = "班级群")), "微信")
         assertEquals("班级群", repository.dao.allRaw().single().title)
-        assertEquals("IGNORED", repository.dao.allRaw().single().state)
+        // Relevance is learned: an uncertain title-only message may stay for review.
+        // Preservation must never turn a group title into an invented timestamp.
+        assertTrue(repository.dao.allSuggestions().all { it.startAt == null && it.endAt == null && it.dueAt == null })
         assertTrue(monitor.status.value.records.single().result.contains("仅提供标题"))
     }
 
@@ -157,13 +160,14 @@ class NotificationCollectorTest {
         assertEquals("采集已暂停", monitor.status.value.records.single().result)
     }
 
-    @Test fun recoveryUsesTheSameDeduplicationAndKeywordRules() = runBlocking {
+    @Test fun recoveryUsesTheSameDeduplicationAndModel() = runBlocking {
         collector.collect(sbn(notification(first)), "微信")
         collector.collect(sbn(notification(first)), "微信", recovery = true)
         collector.collect(sbn(notification("验证码123456")), "微信", recovery = true)
-        assertEquals(1, repository.dao.allRaw().size)
+        assertEquals(2, repository.dao.allRaw().size)
+        assertEquals("IGNORED", repository.dao.allRaw().single { it.body == "验证码123456" }.state)
         assertTrue(monitor.status.value.records.first().result.startsWith("补采："))
-        assertTrue(monitor.status.value.records.first().result.contains("被关键词过滤"))
+        assertTrue(monitor.status.value.records.first().result.contains("1条已忽略"))
     }
 
     @Test fun diagnosticHistoryIsBoundedAndConnectionIsNotRestoredAsLive() {

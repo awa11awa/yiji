@@ -1,0 +1,9 @@
+{
+  "base_revision": "152bf15d86715b41dd89c1e03cf5664963d9b005",
+  "local_checkpoint_sha256": {
+    "tinybert-schedule-final-v3": "b00b902e3eea8cf79177210269de01d21ba49e534905e59dde7e34472c4ea591",
+    "joint-v2a": "c04e9df94a7f4e0b0c06d3051b41dfd17177d35192e1bcf1d0669b4bc56f180c",
+    "joint-v2b": "fa8e4319560c26e0f0351ce3063a638b01f74eaeaac06f8d4e26eea6dd78f39e",
+    "joint-v2c": "824dd187a454e58fe378e510ecbc2d905fa473229fcadf904485a2ecf86dbeb7"
+  }
+}

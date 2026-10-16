@@ -95,16 +95,17 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
                 route == "paste" -> PasteScreen(pasteText, onImport = { title, text, source ->
-                    val rawId = repository.ingest(title, text, source)
-                    val homework = repository.dao.allSuggestions().any { it.rawId == rawId && it.category == HomeworkRules.CATEGORY }
+                    val result = repository.ingestWithResult(title, text, source)
+                    val rawId = result.id
+                    val homework = repository.dao.allSuggestions().any { it.rawId == rawId && it.category == Categories.HOMEWORK }
                     route = ""; tabName = if (homework) AppTab.HOMEWORK.name else AppTab.INBOX.name
-                    snackbar.showSnackbar("已导入，请核对识别结果")
+                    snackbar.showSnackbar(if (result.disposition == IngestDisposition.IGNORED) "模型判断为非待办，原文已保存在通知箱的已忽略列表" else "已导入，请逐项核对模型识别结果")
                 })
                 route == "new" || route == "newHomework" -> EventEditor(route,
-                    if (route == "newHomework") Draft(category = HomeworkRules.CATEGORY, kind = "DEADLINE") else Draft(),
+                    if (route == "newHomework") Draft(category = Categories.HOMEWORK, kind = "DEADLINE") else Draft(),
                     repository.preferences.defaultReminder, events = events, onSave = { d, r, _, _, _ ->
                         repository.save(d, r); route = ""
-                        tabName = if (d.category == HomeworkRules.CATEGORY) AppTab.HOMEWORK.name else AppTab.EVENTS.name
+                        tabName = if (d.category == Categories.HOMEWORK) AppTab.HOMEWORK.name else AppTab.EVENTS.name
                     })
                 route.startsWith("edit:") -> {
                     val e = events.find { it.id == route.removePrefix("edit:") }
@@ -133,11 +134,11 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                 tab == AppTab.EVENTS -> EventsScreen(events) { route = "detail:$it" }
                 tab == AppTab.HOMEWORK -> HomeworkScreen(events, suggestions, raw,
                     onEvent = { route = "detail:$it" }, onConfirm = { route = "confirm:$it" },
-                    onDismiss = { perform { repository.dismiss(it) } }, onAdd = { route = "newHomework" },
+                    onDismiss = { perform { repository.dismissSuggestion(it) } }, onAdd = { route = "newHomework" },
                     onPaste = { pasteText = ""; route = "paste" })
                 tab == AppTab.INBOX -> InboxScreen(raw, suggestions, onConfirm = { route = "confirm:$it" },
-                    onDismiss = { perform { repository.dismiss(it) } }, onDelete = { perform { repository.deleteRaw(it) } },
-                    onPaste = { pasteText = ""; route = "paste" })
+                    onDismiss = { perform { repository.dismissSuggestion(it) } }, onDelete = { perform { repository.deleteRaw(it) } },
+                    onPaste = { pasteText = ""; route = "paste" }, onRetry = { perform { repository.retry(it) } })
                 else -> SettingsScreen(repository, snackbar)
             }
         }
@@ -245,7 +246,7 @@ fun EventsScreen(events: List<Event>, onEvent: (String) -> Unit) {
 
 @Composable
 fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm: (String) -> Unit, onDismiss: (String) -> Unit,
-    onDelete: (String) -> Unit, onPaste: () -> Unit) {
+    onDelete: (String) -> Unit, onPaste: () -> Unit, onRetry: (String) -> Unit = {}) {
     var filter by rememberSaveable { mutableStateOf("PENDING") }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by remember { mutableStateOf<String?>(null) }
@@ -257,21 +258,27 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
         } }
         if (filtered.isEmpty()) item { EmptyState("通知箱空空的", "粘贴通知，或在设置中启用应用通知接入。", Icons.Default.Inbox) { Button(onPaste) { Text("导入文本") } } }
         items(filtered, key = { it.id }) { r ->
-            val suggestion = suggestions.find { it.rawId == r.id }
+            val drafts = suggestions.filter { it.rawId == r.id }
             Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("${r.source} · ${formatTime(r.receivedAt)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text(suggestion?.title ?: r.title.ifBlank { "原始通知" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(r.title.ifBlank { "原始通知" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(r.body, maxLines = if (expanded == r.id) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                    if (suggestion != null) {
-                        Text("${typeLabel(suggestion.type)} · ${suggestion.engine}", style = MaterialTheme.typography.labelMedium)
+                    drafts.forEach { suggestion ->
+                        HorizontalDivider()
+                        Text(suggestion.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("${suggestion.category} · ${if (suggestion.kind == "DEADLINE") "截止事项" else "日程"} · ${typeLabel(suggestion.type)}", style = MaterialTheme.typography.labelMedium)
+                        Text(if (suggestion.kind == "DEADLINE") "${formatTime(suggestion.dueAt)} 截止" else "${formatTime(suggestion.startAt)} — ${formatTime(suggestion.endAt)}", style = MaterialTheme.typography.bodyMedium)
                         if (suggestion.issues.isNotBlank()) Text(suggestion.issues, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(onClick = { onConfirm(suggestion.id) }) { Text("核对确认") }
+                            TextButton(onClick = { onDismiss(suggestion.id) }) { Text("忽略此项") }
+                        }
                     }
                     if (r.info.isNotBlank()) Text(r.info, style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (suggestion != null) Button(onClick = { onConfirm(suggestion.id) }) { Text("核对确认") }
+                        if (drafts.isEmpty() && r.state == "PENDING") Button(onClick = { onRetry(r.id) }) { Text("重试识别") }
                         TextButton(onClick = { expanded = if (expanded == r.id) null else r.id }) { Text(if (expanded == r.id) "收起原文" else "查看原文") }
-                        if (r.state == "PENDING") TextButton(onClick = { onDismiss(r.id) }) { Text("忽略") }
                         TextButton(onClick = { deleteId = r.id }) { Text("删除") }
                     }
                 }

@@ -47,7 +47,7 @@ data class Suggestion(
     val title: String, val category: String, val kind: String,
     val startAt: Long? = null, val endAt: Long? = null, val dueAt: Long? = null,
     val location: String = "", val action: String = "", val note: String = "", val issues: String = "",
-    val reason: String = "", val state: String = "PENDING", val engine: String = "本地规则",
+    val reason: String = "", val state: String = "PENDING", val engine: String = "TinyBERT 离线模型",
 ) {
     fun draft() = Draft(title, category, kind, startAt, endAt, dueAt, location, action, note, issues.lines().filter { it.isNotBlank() })
 }

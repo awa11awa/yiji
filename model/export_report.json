@@ -1,0 +1,38 @@
+{
+  "onnxruntime": "1.31.0",
+  "ir_version": 8,
+  "opset": 17,
+  "pytorch_fp32_max_abs_error": 5.7220458984375e-06,
+  "synthetic_fp32": {
+    "entity_f1": 0.8576449912126538,
+    "counts": {
+      "tp": 732,
+      "predicted": 920,
+      "expected": 787
+    },
+    "head_accuracy": {
+      "route": 0.9305555555555556,
+      "kind": 0.7,
+      "state": 0.9527777777777777,
+      "operation": 0.9916666666666667
+    },
+    "rows": 360
+  },
+  "synthetic_int8": {
+    "entity_f1": 0.8471411901983664,
+    "counts": {
+      "tp": 726,
+      "predicted": 927,
+      "expected": 787
+    },
+    "head_accuracy": {
+      "route": 0.9277777777777778,
+      "kind": 0.6944444444444444,
+      "state": 0.9527777777777777,
+      "operation": 0.9833333333333333
+    },
+    "rows": 360
+  },
+  "bytes": 11907937,
+  "sha256": "88ed8dadde2a9d32a489f723751d09a25ad5ba2ebaaa8237f57a080cc150e924"
+}

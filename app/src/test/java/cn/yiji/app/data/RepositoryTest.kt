@@ -90,12 +90,11 @@ class RepositoryTest {
         val id = repository.ingest("新消息", "晚饭吃什么", "测试应用", "test.app", reference)
         assertEquals("IGNORED", repository.dao.raw(id)!!.state); assertTrue(repository.dao.allSuggestions().isEmpty())
     }
-    @Test fun campusNotificationCreatesLocalSuggestionWithoutAi() = runBlocking {
-        assertFalse(repository.preferences.aiEnabled)
+    @Test fun campusNotificationCreatesSuggestionWithBundledModel() = runBlocking {
         val id = repository.ingest("班级群", "明天14点到301集合，带学生证", "微信", "test.app", reference)
         assertEquals("PENDING", repository.dao.raw(id)!!.state)
         val suggestion = repository.dao.allSuggestions().single()
-        assertEquals("本地规则", suggestion.engine)
+        assertEquals("TinyBERT 离线模型 v2", suggestion.engine)
         assertEquals("301", suggestion.location)
         assertNotNull(suggestion.startAt)
         assertNull(suggestion.endAt)
@@ -111,10 +110,10 @@ class RepositoryTest {
         repository.delete(old.id)
         assertNotNull(repository.dao.raw(raw.id)); assertTrue(repository.dao.allHistory().isEmpty()); assertTrue(repository.dao.allLinks().isEmpty())
     }
-    @Test fun selectingSourcesAndIgnoringKeywords() {
+    @Test fun selectingSourcesOnlyUsesSourceAndPauseState() {
         val prefs = repository.preferences
-        prefs.collecting = true; prefs.packages = setOf("school.app"); prefs.ignoredWords = "广告\n验证码"
-        assertTrue(prefs.accepts("school.app", "会议通知")); assertFalse(prefs.accepts("other.app", "会议通知"))
-        assertFalse(prefs.accepts("school.app", "广告会议")); prefs.collecting = false; assertFalse(prefs.accepts("school.app", "会议通知"))
+        prefs.collecting = true; prefs.packages = setOf("school.app")
+        assertTrue(prefs.accepts("school.app")); assertFalse(prefs.accepts("other.app"))
+        prefs.collecting = false; assertFalse(prefs.accepts("school.app"))
     }
 }

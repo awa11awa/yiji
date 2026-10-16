@@ -52,7 +52,7 @@ object ConflictDetector {
 
 object AssociationMatcher {
     private fun normalized(value: String) = value.lowercase()
-        .replace(Regex("通知|提醒|关于|原定|延期|推迟|取消|改期|更新|变更|请|大家|重新|[\\s\\p{Punct}，。；：【】《》]"), "")
+        .replace(Regex("[\\s\\p{Punct}，。；：【】《》]"), "")
     private fun grams(value: String): Set<String> = if (value.length < 2) setOf(value) else
         (0 until value.length - 1).map { value.substring(it, it + 2) }.toSet()
     fun similarity(a: String, b: String): Double {
@@ -62,29 +62,27 @@ object AssociationMatcher {
         val gx = grams(x); val gy = grams(y)
         return 2.0 * gx.intersect(gy).size / (gx.size + gy.size)
     }
-    fun suggest(draft: Draft, raw: String, items: List<ExistingItem>): MatchSuggestion {
-        val change = Regex("延期|推迟|改为|改到|改至|改期|调整|变更|更改|取消|不再举行").containsMatchIn(raw)
-        val cancel = Regex("取消|不再举行").containsMatchIn(raw)
+    fun suggest(draft: Draft, operation: String, items: List<ExistingItem>): MatchSuggestion {
+        val change = operation in setOf("UPDATE", "CANCEL")
+        val cancel = operation == "CANCEL"
         val candidates = items.filter { it.status == "ACTIVE" && it.draft.kind == draft.kind }
             .map { item ->
                 val name = similarity(draft.title, item.draft.title)
                 val days = if (draft.anchor != null && item.draft.anchor != null)
                     kotlin.math.abs(draft.anchor!! - item.draft.anchor!!) / 86_400_000.0 else null
                 val dateClose = days != null && days <= 1.0 / 1440.0
-                val evidence = name >= 0.72 ||
-                    (name >= 0.45 && normalized(item.draft.title).length >= 4 &&
-                        normalized(raw).contains(normalized(item.draft.title)))
+                val evidence = name >= 0.72
                 val acceptable = evidence && (change || dateClose || draft.anchor == null)
                 Triple(item, if (acceptable) name * 0.85 + if (dateClose) 0.15 else 0.0 else 0.0, dateClose)
             }.sortedByDescending { it.second }
         val best = candidates.firstOrNull()
         if (best == null || best.second < 0.60) return MatchSuggestion("NEW", null,
-            if (change) "识别到变更用语，但没有足够依据关联已有事项，请核对或手动选择目标。" else "识别到新的重要事项，请核对提取结果。", 0.0)
+            if (change) "模型判断为变更，但没有足够依据关联已有事项，请手动选择目标。" else "模型识别到待办事项，请核对提取结果。", 0.0)
         if (candidates.size > 1 && best.second - candidates[1].second < 0.08)
             return MatchSuggestion("NEW", null, "多个已有事项相近，请手动选择关联目标。", best.second)
         return when {
-            cancel -> MatchSuggestion("CANCEL", best.first.id, "原文包含取消通知，标题与已有事项相近。", best.second)
-            change -> MatchSuggestion("UPDATE", best.first.id, "原文包含变更用语，建议更新已有事项并保存历史。", best.second)
+            cancel -> MatchSuggestion("CANCEL", best.first.id, "模型判断为取消，标题与已有事项相近。", best.second)
+            change -> MatchSuggestion("UPDATE", best.first.id, "模型判断为变更，建议更新已有事项并保存历史。", best.second)
             best.third -> MatchSuggestion("MERGE", best.first.id, "标题和时间相近，建议把原通知关联到同一事项。", best.second)
             else -> MatchSuggestion("NEW", null, "标题相近但时间不同，按新的事项处理。", best.second)
         }

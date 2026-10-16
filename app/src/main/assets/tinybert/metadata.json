@@ -1,0 +1,64 @@
+{
+  "labels": [
+    "O",
+    "B-EVENT",
+    "I-EVENT",
+    "B-LOCATION",
+    "I-LOCATION",
+    "B-START_TIME",
+    "I-START_TIME",
+    "B-END_TIME",
+    "I-END_TIME",
+    "B-DUE_TIME",
+    "I-DUE_TIME",
+    "B-REFERENCE_TIME",
+    "I-REFERENCE_TIME"
+  ],
+  "heads": {
+    "route": [
+      "IGNORE",
+      "作业",
+      "报名",
+      "会议",
+      "课程",
+      "活动",
+      "考试",
+      "材料",
+      "其他"
+    ],
+    "kind": [
+      "SCHEDULE",
+      "DEADLINE",
+      "MIXED"
+    ],
+    "state": [
+      "KNOWN",
+      "TO_BE_ANNOUNCED",
+      "BOOKING_REQUIRED"
+    ],
+    "operation": [
+      "NEW",
+      "UPDATE",
+      "CANCEL"
+    ]
+  },
+  "max_length": 384,
+  "stride": 96,
+  "version": "2.0.0",
+  "base_model": "huawei-noah/TinyBERT_4L_zh",
+  "base_revision": "152bf15d86715b41dd89c1e03cf5664963d9b005",
+  "model_sha256": "88ed8dadde2a9d32a489f723751d09a25ad5ba2ebaaa8237f57a080cc150e924",
+  "input_names": [
+    "input_ids",
+    "attention_mask",
+    "token_type_ids"
+  ],
+  "output_names": [
+    "tags",
+    "route",
+    "kind",
+    "state",
+    "operation"
+  ],
+  "ignore_threshold": 0.8
+}

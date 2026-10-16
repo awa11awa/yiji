@@ -6,7 +6,7 @@
 
 1. 在 `app/build.gradle.kts` 中更新 `versionName`，并递增 `versionCode`。
 2. 添加或更新 `RELEASE_NOTES_v<版本号>.md`，说明功能、验证结果和升级注意事项。
-3. 将改动提交到 `main`；`.github/workflows/release.yml` 自动运行单元/集成测试、Android Lint 和 APK 构建。
+3. 将改动提交到 `main` 或本次指定的 `v2.0.0` 分支 或本次指定的 `v2.0.0` 分支；`.github/workflows/release.yml` 自动运行单元/集成测试、Android Lint 和 APK 构建。
 4. 只有检查通过、APK 版本与签名校验通过后，才生成源码包并上传附件，最后公开 Release。
 5. 发布后检查 Release 附件齐全，并确认 SHA256SUMS.txt 对应本次发布文件。
 

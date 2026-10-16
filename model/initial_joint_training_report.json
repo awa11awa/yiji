@@ -1,0 +1,232 @@
+{
+  "status": "experimental",
+  "real_world_accuracy": "Not established; synthetic holdout scores only. Three supplied real notices are training examples.",
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 3.2147984757328665,
+      "valid": {
+        "entity_f1": 0.4648137196924896,
+        "entity_counts": {
+          "tp": 393,
+          "predicted": 917,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.3638888888888889,
+          "kind": 0.7083333333333334,
+          "state": 0.8694444444444445,
+          "operation": 0.8527777777777777
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.664714494875549,
+          "LOCATION": 0.4117647058823529,
+          "START_TIME": 0.4835164835164835,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.0,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 41.8
+    },
+    {
+      "epoch": 2,
+      "loss": 1.5809423295867364,
+      "valid": {
+        "entity_f1": 0.6569936157864191,
+        "entity_counts": {
+          "tp": 566,
+          "predicted": 949,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.9,
+          "kind": 0.7,
+          "state": 0.9,
+          "operation": 0.9277777777777778
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.8166409861325116,
+          "LOCATION": 0.654275092936803,
+          "START_TIME": 0.4752475247524752,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.6238938053097345,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 80.5
+    },
+    {
+      "epoch": 3,
+      "loss": 0.46846870476046937,
+      "valid": {
+        "entity_f1": 0.7044100119189511,
+        "entity_counts": {
+          "tp": 591,
+          "predicted": 904,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.9638888888888889,
+          "kind": 0.7138888888888889,
+          "state": 0.9277777777777778,
+          "operation": 0.9472222222222222
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.84,
+          "LOCATION": 0.6541353383458647,
+          "START_TIME": 0.5964912280701754,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.6838407494145199,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 120.5
+    },
+    {
+      "epoch": 4,
+      "loss": 0.16839396719210195,
+      "valid": {
+        "entity_f1": 0.7603203943314849,
+        "entity_counts": {
+          "tp": 617,
+          "predicted": 849,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.9777777777777777,
+          "kind": 0.7916666666666666,
+          "state": 0.9222222222222223,
+          "operation": 0.9194444444444444
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.812960235640648,
+          "LOCATION": 0.6949152542372882,
+          "START_TIME": 0.6978723404255319,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.8368794326241135,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 160.5
+    },
+    {
+      "epoch": 5,
+      "loss": 0.07883111674906007,
+      "valid": {
+        "entity_f1": 0.771039603960396,
+        "entity_counts": {
+          "tp": 623,
+          "predicted": 842,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.9805555555555555,
+          "kind": 0.8027777777777778,
+          "state": 0.9277777777777778,
+          "operation": 0.9416666666666667
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.8386123680241327,
+          "LOCATION": 0.7426160337552743,
+          "START_TIME": 0.6919831223628692,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.8158508158508159,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 202.1
+    },
+    {
+      "epoch": 6,
+      "loss": 0.04608480234488549,
+      "valid": {
+        "entity_f1": 0.7357013847080073,
+        "entity_counts": {
+          "tp": 611,
+          "predicted": 887,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.9805555555555555,
+          "kind": 0.7861111111111111,
+          "state": 0.9666666666666667,
+          "operation": 0.9388888888888889
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.834597875569044,
+          "LOCATION": 0.7272727272727273,
+          "START_TIME": 0.6434108527131783,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.7586206896551724,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 241.6
+    },
+    {
+      "epoch": 7,
+      "loss": 0.03658862271969089,
+      "valid": {
+        "entity_f1": 0.7465045592705166,
+        "entity_counts": {
+          "tp": 614,
+          "predicted": 871,
+          "expected": 774
+        },
+        "head_accuracy": {
+          "route": 0.9805555555555555,
+          "kind": 0.7916666666666666,
+          "state": 0.95,
+          "operation": 0.9444444444444444
+        },
+        "windows": 360,
+        "role_f1": {
+          "EVENT": 0.8501529051987767,
+          "LOCATION": 0.7606837606837606,
+          "START_TIME": 0.6381322957198443,
+          "END_TIME": 0.0,
+          "DUE_TIME": 0.7621247113163973,
+          "REFERENCE_TIME": 0.0
+        }
+      },
+      "seconds": 285.2
+    }
+  ],
+  "data_sha256": {
+    "train": "9f100c1a8250c66c8ae786417de65142f7e9a4dc606874d1b7688809a12f14b6",
+    "valid": "a2f94fdc98d1aa5a161bfe437c4e19e1836e2f77a6d26d8173597ba3f82965ad",
+    "test": "82c7dffbba1084ddec3fe8d368d484a5c25e6d8fdcb79c178a5519d19141338f"
+  },
+  "train_windows": 3605,
+  "best_epoch": 5,
+  "test": {
+    "entity_f1": 0.7856341189674523,
+    "entity_counts": {
+      "tp": 700,
+      "predicted": 991,
+      "expected": 791
+    },
+    "head_accuracy": {
+      "route": 0.9305555555555556,
+      "kind": 0.8555555555555555,
+      "state": 0.9805555555555555,
+      "operation": 0.9722222222222222
+    },
+    "windows": 360,
+    "role_f1": {
+      "EVENT": 0.8932330827067669,
+      "LOCATION": 0.9105691056910569,
+      "START_TIME": 0.7086092715231788,
+      "END_TIME": 0.2553191489361702,
+      "DUE_TIME": 0.7472035794183445,
+      "REFERENCE_TIME": 0.35714285714285715
+    }
+  }
+}

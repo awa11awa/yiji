@@ -14,7 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import cn.yiji.app.core.HomeworkRules
+import cn.yiji.app.core.Categories
 import cn.yiji.app.data.Event
 import cn.yiji.app.data.RawMessage
 import cn.yiji.app.data.Suggestion
@@ -22,14 +22,14 @@ import kotlinx.coroutines.delay
 
 internal fun homeworkEvents(events: List<Event>, status: String, query: String, now: Long): List<Event> =
     events.filter { event ->
-        event.category == HomeworkRules.CATEGORY &&
+        event.category == Categories.HOMEWORK &&
             (if (status == "OVERDUE") event.status == "ACTIVE" && event.kind == "DEADLINE" &&
                 event.dueAt?.let { it < now } == true else status == "ALL" || event.status == status) &&
             "${event.title} ${event.action} ${event.note} ${event.location}".contains(query.trim(), ignoreCase = true)
     }.sortedWith(compareBy<Event> { it.anchor ?: Long.MAX_VALUE }.thenBy { it.title }.thenBy { it.id })
 
 internal fun pendingHomework(suggestions: List<Suggestion>, query: String = ""): List<Suggestion> =
-    suggestions.filter { it.state == "PENDING" && it.category == HomeworkRules.CATEGORY &&
+    suggestions.filter { it.state == "PENDING" && it.category == Categories.HOMEWORK &&
         "${it.title} ${it.action} ${it.note}".contains(query.trim(), ignoreCase = true) }
         .sortedWith(compareBy<Suggestion> { it.dueAt ?: Long.MAX_VALUE }.thenBy { it.id })
 
@@ -43,7 +43,7 @@ fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List
     LaunchedEffect(Unit) {
         while (true) { now = System.currentTimeMillis(); delay(30_000) }
     }
-    val assignments = events.filter { it.category == HomeworkRules.CATEGORY }
+    val assignments = events.filter { it.category == Categories.HOMEWORK }
     val pending = pendingHomework(suggestions, query)
     val showPending = status in setOf("ACTIVE", "ALL", "PENDING")
     val filtered = if (status == "PENDING") emptyList() else homeworkEvents(events, status, query, now)
@@ -90,7 +90,7 @@ fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List
                         if (original != null) Text(original.source, style = MaterialTheme.typography.labelSmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { onConfirm(suggestion.id) }) { Text("核对作业") }
-                            TextButton(onClick = { onDismiss(suggestion.rawId) }) { Text("忽略") }
+                            TextButton(onClick = { onDismiss(suggestion.id) }) { Text("忽略") }
                         }
                     }
                 }

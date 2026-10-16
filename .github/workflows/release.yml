@@ -2,9 +2,11 @@ name: Build and publish APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2.0.0]
     paths:
       - app/build.gradle.kts
+      - app/src/**
+      - model/**
       - .github/workflows/release.yml
       - RELEASE_NOTES_*.md
   workflow_dispatch:
@@ -13,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: yiji-release
+  group: yiji-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -129,3 +131,13 @@ jobs:
               --notes-file "release-artifacts/RELEASE_NOTES_$TAG.md"
           fi
           gh release edit "$TAG" --draft=false --prerelease
+
+      - name: Preserve test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ github.sha }}
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/test-results/testDebugUnitTest/

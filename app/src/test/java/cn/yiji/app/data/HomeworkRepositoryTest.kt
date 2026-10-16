@@ -33,8 +33,7 @@ class HomeworkRepositoryTest {
         return repository.dao.allSuggestions().single { it.rawId == result.id }
     }
 
-    @Test fun notificationHomeworkReachesConfirmationWithoutAi() = runBlocking {
-        assertFalse(repository.preferences.aiEnabled)
+    @Test fun notificationHomeworkReachesConfirmationWithBundledModel() = runBlocking {
         val suggestion = importHomework("C语言实验报告，明晚20:00前提交")
         assertEquals("作业", suggestion.category)
         assertEquals("DEADLINE", suggestion.kind)

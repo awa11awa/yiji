@@ -3,6 +3,9 @@ package cn.yiji.app.data
 import androidx.room.withTransaction
 import cn.yiji.app.core.*
 import cn.yiji.app.platform.ReminderScheduler
+import cn.yiji.app.ml.LocalScheduleExtractor
+import cn.yiji.app.ml.ScheduleExtractor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
@@ -10,10 +13,10 @@ import java.security.MessageDigest
 enum class IngestDisposition { PENDING, IGNORED, DUPLICATE }
 data class IngestResult(val id: String, val disposition: IngestDisposition)
 
-class Repository(val database: YijiDatabase, val preferences: Preferences, private val reminders: ReminderScheduler) {
+class Repository(val database: YijiDatabase, val preferences: Preferences, private val reminders: ReminderScheduler,
+    private val extractor: ScheduleExtractor = LocalScheduleExtractor(preferences.context)) {
     val dao = database.dao()
     private val lock = Mutex()
-    private val ai = AiClient(preferences)
     val events = dao.observeEvents()
     val rawMessages = dao.observeRaw()
     val suggestions = dao.observeSuggestions()
@@ -26,26 +29,42 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         require(body.length <= 16000 && title.length <= 200) { "通知内容过长，请分段导入" }
         val fingerprint = MessageDigest.getInstance("SHA-256").digest("$packageName|$title|$body".toByteArray()).joinToString("") { "%02x".format(it) }
         if (packageName != "manual") dao.recentDuplicate(fingerprint, receivedAt - 86_400_000)?.let { return@withLock IngestResult(it.id, IngestDisposition.DUPLICATE) }
-        var raw = RawMessage(title = title, body = body, source = source, packageName = packageName, receivedAt = receivedAt, fingerprint = fingerprint)
-        if (packageName != "manual" && !RuleParser.isImportant(body, title)) {
-            raw = raw.copy(state = "IGNORED", info = "未识别出明确事项，可查看原文，或粘贴导入后手动核对")
-            dao.putRaw(raw); return@withLock IngestResult(raw.id, IngestDisposition.IGNORED)
+        val raw = RawMessage(title = title, body = body, source = source, packageName = packageName, receivedAt = receivedAt, fingerprint = fingerprint)
+        extractAndStore(raw)
+    }
+
+    private suspend fun extractAndStore(original: RawMessage): IngestResult {
+        val extraction = try { extractor.extract(original.title, original.body, original.receivedAt) }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { return modelFailure(original) }
+        catch (_: LinkageError) { return modelFailure(original) }
+        val raw = original.copy(state = if (extraction.ignored) "IGNORED" else "PENDING", info = extraction.info)
+        if (extraction.ignored) {
+            dao.putRaw(raw)
+            return IngestResult(raw.id, IngestDisposition.IGNORED)
         }
-        var draft = RuleParser.parse(title, body, receivedAt)
-        var engine = "本地规则"
+        require(extraction.drafts.isNotEmpty()) { "模型未返回草稿" }
         val existing = dao.allEvents().sortedByDescending { it.updatedAt }
-        var modelAssociation: MatchSuggestion? = null
-        if (preferences.aiEnabled) {
-            try { val extraction = ai.extract(raw, existing); draft = extraction.draft; engine = extraction.engine; modelAssociation = extraction.association }
-            catch (_: Exception) { raw = raw.copy(info = "AI 服务连接失败，已使用本地规则。可在设置中检查服务地址。") }
-        }
-        val match = modelAssociation ?: AssociationMatcher.suggest(draft, "$title $body", existing.map { it.existing() })
-        val suggestion = Suggestion(rawId = raw.id, type = match.type, targetId = match.targetId,
+        val suggestions = extraction.drafts.map { draft ->
+            val match = AssociationMatcher.suggest(draft, extraction.operation, existing.map { it.existing() })
+            Suggestion(rawId = raw.id, type = match.type, targetId = match.targetId,
             title = draft.title, category = draft.category, kind = draft.kind, startAt = draft.startAt,
             endAt = draft.endAt, dueAt = draft.dueAt, location = draft.location, action = draft.action,
-            note = draft.note, issues = draft.issues.joinToString("\n"), reason = match.reason, engine = engine)
-        database.withTransaction { dao.putRaw(raw); dao.putSuggestion(suggestion) }
-        IngestResult(raw.id, IngestDisposition.PENDING)
+            note = draft.note, issues = draft.issues.joinToString("\n"), reason = match.reason, engine = "TinyBERT 离线模型 v2")
+        }
+        database.withTransaction { dao.putRaw(raw); suggestions.forEach { dao.putSuggestion(it) } }
+        return IngestResult(raw.id, IngestDisposition.PENDING)
+    }
+
+    private suspend fun modelFailure(raw: RawMessage): IngestResult {
+        dao.putRaw(raw.copy(state = "PENDING", info = "本地模型识别失败，原文已保存。请重试识别或手动添加事项。"))
+        return IngestResult(raw.id, IngestDisposition.PENDING)
+    }
+
+    suspend fun retry(rawId: String) = lock.withLock {
+        val raw = dao.raw(rawId) ?: error("原文已不存在")
+        require(raw.state == "PENDING" && dao.allSuggestions().none { it.rawId == rawId }) { "该通知已有识别结果" }
+        extractAndStore(raw)
     }
 
     suspend fun confirm(suggestionId: String, draft: Draft, type: String, targetId: String?, reminder: Int, expectedTargetUpdatedAt: Long? = null): String = lock.withLock {
@@ -72,7 +91,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
             dao.putHistory(History(eventId = event.id, action = when (type) { "NEW" -> "从通知新建"; "UPDATE" -> "确认变更"; "CANCEL" -> "确认取消"; else -> "合并通知来源" },
                 before = target?.let { BackupCodec.eventJson(it).toString() }.orEmpty(), after = BackupCodec.eventJson(event).toString()))
             dao.putSuggestion(suggestion.copy(state = "CONFIRMED"))
-            dao.raw(suggestion.rawId)?.let { dao.putRaw(it.copy(state = "CONFIRMED")) }
+            reconcileRaw(suggestion.rawId)
             result = event
         }
         if (type != "MERGE") reminders.schedule(result!!)
@@ -110,8 +129,25 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     suspend fun dismiss(rawId: String) = lock.withLock {
         database.withTransaction {
             dao.allSuggestions().filter { it.rawId == rawId && it.state == "PENDING" }.forEach { dao.putSuggestion(it.copy(state = "DISMISSED")) }
-            dao.raw(rawId)?.let { dao.putRaw(it.copy(state = "IGNORED")) }
+            reconcileRaw(rawId)
         }
+    }
+    suspend fun dismissSuggestion(id: String) = lock.withLock {
+        database.withTransaction {
+            val suggestion = dao.suggestion(id) ?: error("建议已不存在")
+            require(suggestion.state == "PENDING") { "这条建议已经处理" }
+            dao.putSuggestion(suggestion.copy(state = "DISMISSED"))
+            reconcileRaw(suggestion.rawId)
+        }
+    }
+    private suspend fun reconcileRaw(rawId: String) {
+        val siblings = dao.allSuggestions().filter { it.rawId == rawId }
+        val state = when {
+            siblings.any { it.state == "PENDING" } -> "PENDING"
+            siblings.any { it.state == "CONFIRMED" } -> "CONFIRMED"
+            else -> "IGNORED"
+        }
+        dao.raw(rawId)?.let { dao.putRaw(it.copy(state = state)) }
     }
     suspend fun delete(id: String) = lock.withLock { reminders.cancel(id); dao.deleteEvent(id) }
     suspend fun deleteRaw(id: String) = lock.withLock { dao.deleteRaw(id) }
