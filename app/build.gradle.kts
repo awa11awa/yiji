@@ -1,9 +1,27 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.kapt")
 }
+
+val stableSigningFile = System.getenv("YIJI_SIGNING_PROPERTIES")?.let { File(it) }
+    ?: File(System.getProperty("user.home"), ".config/yiji/signing.properties")
+val stableSigning = Properties().apply {
+    if (stableSigningFile.isFile) stableSigningFile.inputStream().use { load(it) }
+}
+val stableStore = stableSigning.getProperty("storeFile")?.let {
+    File(it).let { path -> if (path.isAbsolute) path else File(stableSigningFile.parentFile, it) }
+}
+val hasStableSigning = stableStore?.isFile == true &&
+    listOf("storePassword", "keyAlias", "keyPassword").all { !stableSigning.getProperty(it).isNullOrBlank() }
+if ((System.getenv("YIJI_REQUIRE_STABLE_SIGNING") == "true" || stableSigningFile.exists()) && !hasStableSigning) {
+    throw GradleException("Fixed signing configuration is missing or incomplete; refusing to use a temporary signing key.")
+}
+
 android {
     namespace = "cn.yiji.app"
     compileSdk = 35
@@ -13,9 +31,20 @@ android {
         applicationId = "cn.yiji.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.0.0"
+        versionCode = 6
+        versionName = "2.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    if (hasStableSigning) {
+        signingConfigs.create("yijiStable") {
+            storeFile = stableStore
+            storePassword = stableSigning.getProperty("storePassword")
+            keyAlias = stableSigning.getProperty("keyAlias")
+            keyPassword = stableSigning.getProperty("keyPassword")
+            storeType = stableSigning.getProperty("storeType", "PKCS12")
+        }
+        buildTypes.getByName("debug").signingConfig = signingConfigs.getByName("yijiStable")
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("yijiStable")
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
@@ -43,6 +72,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.room:room-runtime:2.7.1")
     implementation("androidx.room:room-ktx:2.7.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     kapt("androidx.room:room-compiler:2.7.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")

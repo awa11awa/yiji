@@ -55,7 +55,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         if (sharedText != null) { pasteText = sharedText; route = "paste" }
         consumeIntent()
     }
-    BackHandler(route.isNotBlank()) { route = "" }
+    BackHandler(route.isNotBlank()) { route = if (route == "apiGuide") "api" else "" }
     fun perform(action: suspend () -> Unit) { scope.launch { try { action() } catch (e: Exception) { snackbar.showSnackbar(e.message ?: "操作未完成，请重试") } } }
     val icons = mapOf(AppTab.HOME to Icons.Default.Home, AppTab.EVENTS to Icons.AutoMirrored.Filled.EventNote,
         AppTab.HOMEWORK to Icons.Default.AutoStories, AppTab.INBOX to Icons.Default.Inbox, AppTab.SETTINGS to Icons.Default.Settings)
@@ -67,20 +67,22 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         route == "newHomework" -> "添加作业"
         route == "paste" -> "导入通知文本"
         route == "conflicts" -> "时间冲突"
+        route == "api" -> "API 与模型"
+        route == "apiGuide" -> "获取 API 教程"
         else -> tab.title
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(title = { Text(routeTitle, fontWeight = FontWeight.Bold) }, navigationIcon = {
-            if (route.isNotBlank()) IconButton(onClick = { route = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+            if (route.isNotBlank()) IconButton(onClick = { route = if (route == "apiGuide") "api" else "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
         }, actions = {
             if (route.isBlank()) IconButton(onClick = { pasteText = ""; route = "paste" }) { Icon(Icons.Default.ContentPaste, "粘贴通知") }
         }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) },
         bottomBar = { if (route.isBlank()) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
             AppTab.entries.forEach { item -> NavigationBarItem(selected = tab == item, onClick = { tabName = item.name }, icon = {
                 val count = when (item) {
-                    AppTab.INBOX -> suggestions.size
+                    AppTab.INBOX -> suggestions.size + raw.count { r -> r.state == "PENDING" && suggestions.none { it.rawId == r.id } }
                     AppTab.HOMEWORK -> pendingHomework(suggestions).size
                     else -> 0
                 }
@@ -94,12 +96,14 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
+                route == "api" -> ApiProfilesScreen(repository, snackbar) { route = "apiGuide" }
+                route == "apiGuide" -> ApiGuideScreen()
                 route == "paste" -> PasteScreen(pasteText, onImport = { title, text, source ->
-                    val result = repository.ingestWithResult(title, text, source)
+                    val result = repository.enqueueWithResult(title, text, source)
                     val rawId = result.id
                     val homework = repository.dao.allSuggestions().any { it.rawId == rawId && it.category == Categories.HOMEWORK }
                     route = ""; tabName = if (homework) AppTab.HOMEWORK.name else AppTab.INBOX.name
-                    snackbar.showSnackbar(if (result.disposition == IngestDisposition.IGNORED) "模型判断为非待办，原文已保存在通知箱的已忽略列表" else "已导入，请逐项核对模型识别结果")
+                    snackbar.showSnackbar(if (result.disposition == IngestDisposition.IGNORED) "模型判断为非待办，原文已保存在通知箱的已忽略列表" else "原文已保存，正在排队筛选与提取")
                 })
                 route == "new" || route == "newHomework" -> EventEditor(route,
                     if (route == "newHomework") Draft(category = Categories.HOMEWORK, kind = "DEADLINE") else Draft(),
@@ -129,7 +133,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                     else EmptyState("正在读取事项", "如果事项已被删除，请返回列表。", Icons.AutoMirrored.Filled.EventNote)
                 }
                 route == "conflicts" -> ConflictScreen(conflicts, events) { route = "detail:$it" }
-                tab == AppTab.HOME -> HomeScreen(events, suggestions.size, conflicts.size, { route = "detail:$it" },
+                tab == AppTab.HOME -> HomeScreen(events, raw.count { it.state == "PENDING" }, conflicts.size, { route = "detail:$it" },
                     { tabName = AppTab.INBOX.name }, { route = "conflicts" }, { route = "paste" }, { tabName = AppTab.SETTINGS.name })
                 tab == AppTab.EVENTS -> EventsScreen(events) { route = "detail:$it" }
                 tab == AppTab.HOMEWORK -> HomeworkScreen(events, suggestions, raw,
@@ -138,8 +142,9 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                     onPaste = { pasteText = ""; route = "paste" })
                 tab == AppTab.INBOX -> InboxScreen(raw, suggestions, onConfirm = { route = "confirm:$it" },
                     onDismiss = { perform { repository.dismissSuggestion(it) } }, onDelete = { perform { repository.deleteRaw(it) } },
-                    onPaste = { pasteText = ""; route = "paste" }, onRetry = { perform { repository.retry(it) } })
-                else -> SettingsScreen(repository, snackbar)
+                    onPaste = { pasteText = ""; route = "paste" }, onRetry = { perform { repository.enqueueRetry(it) } },
+                    onCloudReview = { perform { repository.enqueueRetry(it, forceCloud = true) } })
+                else -> SettingsScreen(repository, snackbar) { route = "api" }
             }
         }
     }
@@ -246,7 +251,7 @@ fun EventsScreen(events: List<Event>, onEvent: (String) -> Unit) {
 
 @Composable
 fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm: (String) -> Unit, onDismiss: (String) -> Unit,
-    onDelete: (String) -> Unit, onPaste: () -> Unit, onRetry: (String) -> Unit = {}) {
+    onDelete: (String) -> Unit, onPaste: () -> Unit, onRetry: (String) -> Unit = {}, onCloudReview: (String) -> Unit = {}) {
     var filter by rememberSaveable { mutableStateOf("PENDING") }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by remember { mutableStateOf<String?>(null) }
@@ -278,6 +283,7 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
                     if (r.info.isNotBlank()) Text(r.info, style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (drafts.isEmpty() && r.state == "PENDING") Button(onClick = { onRetry(r.id) }) { Text("重试识别") }
+                        if (drafts.isEmpty() && r.state in setOf("PENDING", "IGNORED")) TextButton(onClick = { onCloudReview(r.id) }) { Text("送云端复核") }
                         TextButton(onClick = { expanded = if (expanded == r.id) null else r.id }) { Text(if (expanded == r.id) "收起原文" else "查看原文") }
                         TextButton(onClick = { deleteId = r.id }) { Text("删除") }
                     }

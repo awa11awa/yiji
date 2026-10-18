@@ -1,0 +1,115 @@
+{
+  "version": "2.1.0",
+  "task": "binary_message_routing",
+  "labels": [
+    "CHAT",
+    "SCHEDULE"
+  ],
+  "seed": 42,
+  "source": "huawei-noah/TinyBERT_4L_zh",
+  "revision": "152bf15d86715b41dd89c1e03cf5664963d9b005",
+  "initialized_from": "Verified official pretrained Chinese TinyBERT encoder; a newly trained binary head replaces all v2 extraction heads.",
+  "real_training_rows": 0,
+  "warning": "Synthetic data only. No independent real-world accuracy is established.",
+  "split": "Disjoint sentence families between train, validation and test; shared subject vocabulary; exact text deduplicated across splits.",
+  "data_sha256": {
+    "train": "4f995e9d95b1692cd54652e9a89f4b674e8d0f7ec86734392437a773e9088808",
+    "valid": "c6f5b2e1329dd31f8159598d0ebd79c8022832d968fb60e7fa22aefe39c91870",
+    "test": "001dda5b58f651de64dc3f197a3947dfdfcf30a86a1d582e29a3e367414310e3"
+  },
+  "torch_version": "2.14.1+cpu",
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 0.2741003809489345,
+      "validation": {
+        "schedule_precision": 0.7839506172839507,
+        "schedule_recall": 0.8466666666666667,
+        "accuracy": 0.8066666666666666,
+        "tp": 254,
+        "fp": 70,
+        "fn": 46,
+        "rows": 600
+      },
+      "seconds": 27.1
+    },
+    {
+      "epoch": 2,
+      "loss": 0.0048167245162415145,
+      "validation": {
+        "schedule_precision": 0.7889908256880734,
+        "schedule_recall": 0.86,
+        "accuracy": 0.815,
+        "tp": 258,
+        "fp": 69,
+        "fn": 42,
+        "rows": 600
+      },
+      "seconds": 53.3
+    },
+    {
+      "epoch": 3,
+      "loss": 0.0006747483433862692,
+      "validation": {
+        "schedule_precision": 0.7988980716253443,
+        "schedule_recall": 0.9666666666666667,
+        "accuracy": 0.8616666666666667,
+        "tp": 290,
+        "fp": 73,
+        "fn": 10,
+        "rows": 600
+      },
+      "seconds": 80.2
+    },
+    {
+      "epoch": 4,
+      "loss": 0.0001581666104930785,
+      "validation": {
+        "schedule_precision": 0.8011049723756906,
+        "schedule_recall": 0.9666666666666667,
+        "accuracy": 0.8633333333333333,
+        "tp": 290,
+        "fp": 72,
+        "fn": 10,
+        "rows": 600
+      },
+      "seconds": 106.1
+    },
+    {
+      "epoch": 5,
+      "loss": 0.0001300757793365951,
+      "validation": {
+        "schedule_precision": 0.8044692737430168,
+        "schedule_recall": 0.96,
+        "accuracy": 0.8633333333333333,
+        "tp": 288,
+        "fp": 70,
+        "fn": 12,
+        "rows": 600
+      },
+      "seconds": 132.2
+    }
+  ],
+  "best_epoch": 4,
+  "chat_ignore_threshold": 0.995,
+  "fp32_test": {
+    "schedule_precision": 0.853448275862069,
+    "schedule_recall": 0.99,
+    "accuracy": 0.91,
+    "tp": 297,
+    "fp": 51,
+    "fn": 3,
+    "rows": 600
+  },
+  "int8_test": {
+    "schedule_precision": 0.8608695652173913,
+    "schedule_recall": 0.99,
+    "accuracy": 0.915,
+    "tp": 297,
+    "fp": 48,
+    "fn": 3,
+    "rows": 600
+  },
+  "model_sha256": "1787ba006ccbb73289267499a9f6b8ecda22594a02497782d1c497430f7392de",
+  "bytes": 11637318
+}

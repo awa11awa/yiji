@@ -36,7 +36,11 @@ class HomeworkNavigationTest {
 
     @Test fun incompleteNotificationAppearsOnHomeworkTab() {
         val repository = (compose.activity.application as YijiApplication).repository
-        runBlocking { repository.ingest("课程群", "请完成C语言实验报告", "微信", "com.tencent.mm") }
+        runBlocking {
+            val raw = cn.yiji.app.data.RawMessage(title = "课程群", body = "请完成C语言实验报告", source = "微信")
+            repository.dao.putRaw(raw)
+            repository.dao.putSuggestion(cn.yiji.app.data.Suggestion(rawId = raw.id, title = "C语言实验报告", category = "作业", kind = "DEADLINE"))
+        }
         compose.onNodeWithText("作业").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("待确认作业").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("待确认作业").assertIsDisplayed()

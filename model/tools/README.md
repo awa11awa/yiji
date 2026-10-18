@@ -1,20 +1,15 @@
-# 本地训练和导出
+# 消息二分类训练与导出（v2.1）
 
-在仓库根目录创建 Python 虚拟环境并安装 `model/tools/requirements.txt`（PyTorch 可选择官方 CPU wheel）。Android 构建不需要 Python，也不会触发训练或模型下载。
+下载官方固定revision并校验哈希，准备编码器，然后训练聊天／日程二分类并量化导出：
 
-```sh
-python model/tools/download_model.py
-python model/tools/prepare_model.py
-python model/tools/build_joint_data.py
-python model/tools/augment_joint_campus.py
-python model/tools/train_joint.py --epochs 7 --output model/outputs/joint
-python model/tools/export_joint.py --model model/outputs/joint
-```
+    python model/tools/download_model.py
+    python model/tools/prepare_model.py
+    python model/tools/train_gate.py --epochs 5 --threads 5
 
-下载器固定官方 revision 并验证权重 SHA-256；准备工具只转换编码器，丢弃蒸馏／预训练任务头。基础权重准备后训练与推理均使用离线文件。
+运行环境需PyTorch CPU、Transformers4.57.6、safetensors、numpy、onnx、onnxruntime。实际依赖版本见 requirements-gate.txt。Android构建只读取已导出的模型，不需要Python。
 
-默认可从官方编码器重新训练，联合分类头与角色标签头从随机初始化开始。如有之前的 NER checkpoint，使用 `--init-ner <目录>`；继续联合模型训练使用 `--init <目录>`。需要新的输出目录，避免覆盖已有 checkpoint。
+train_gate.py会生成按句式集合划分的5,000/600/600条合成资料，写入model/data/gate-v2.1；原始编码器、数据、checkpoint均不随源码公开二进制缓存，训练工具可重新生成合成资料。固定种子及数据SHA-256记录在gate_training_report.json。硬件、线程数、库版本可能影响权重逐字节复现。
 
-生成器中的模板与标签是训练资料的标注方法，不会作为 Android 筛选代码运行。合成划分按句式隔离、词汇共享，不能替代真实消息评估。三条用户原文未公开，公共重新训练默认仅使用合成资料，不能逐字节复现内置 checkpoint。相同初始 checkpoint、数据与采样种子也仍受运行库和硬件影响。
+默认训练不读取用户私聊、未授权数据或历史三条私有训练通知。本次没有独立真实消息评测；合成分数只用于开发验证，不能代表真实准确率。
 
-内部本次训练实际先从已有 NER 权重训练联合任务，再补充时间范围和简短校园通知；各阶段与最终量化报告在上层目录。导出器验证 ONNX 与 PyTorch、FP32 与 INT8 的合成测试差异，未通过时停止打包。
+输出为app/src/main/assets/tinybert/model.int8.onnx及metadata.json，只有CHAT/SCHEDULE两个标签。旧build_joint_data/train_joint/export_joint等工具与历史报告仅用于复现v2.0，不是本版默认运行模型。

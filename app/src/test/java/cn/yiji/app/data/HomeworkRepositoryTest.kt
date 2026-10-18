@@ -23,7 +23,7 @@ class HomeworkRepositoryTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("yiji-settings", Context.MODE_PRIVATE).edit().clear().commit()
         database = Room.inMemoryDatabaseBuilder(context, YijiDatabase::class.java).allowMainThreadQueries().build()
-        repository = Repository(database, Preferences(context), ReminderScheduler(context))
+        repository = Repository(database, Preferences(context), ReminderScheduler(context), cn.yiji.app.TestExtraction.extractor)
     }
     @After fun teardown() { database.close() }
 

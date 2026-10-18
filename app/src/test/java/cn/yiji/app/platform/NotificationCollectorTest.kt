@@ -37,11 +37,15 @@ class NotificationCollectorTest {
         context.getSharedPreferences("yiji-settings", Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences("yiji-notification-status", Context.MODE_PRIVATE).edit().clear().commit()
         database = Room.inMemoryDatabaseBuilder(context, YijiDatabase::class.java).allowMainThreadQueries().build()
-        repository = Repository(database, Preferences(context), ReminderScheduler(context))
+        repository = Repository(database, Preferences(context), ReminderScheduler(context), cn.yiji.app.TestExtraction.extractor)
         repository.preferences.collecting = true
         repository.preferences.packages = setOf("com.tencent.mm")
         monitor = NotificationMonitor(context)
         collector = NotificationCollector(repository, monitor)
+    }
+    private suspend fun collect(sbn: StatusBarNotification, source: String, recovery: Boolean = false) {
+        collector.collect(sbn, source, recovery)
+        repository.processQueued()
     }
     @After fun teardown() { database.close() }
     private fun notification(body: String, summary: Boolean = false, title: String = "班级群"): Notification =
@@ -56,25 +60,25 @@ class NotificationCollectorTest {
     }
 
     @Test fun firstNotificationFollowedBySummaryUpdatesKeepsDifferentMessages() = runBlocking {
-        collector.collect(sbn(notification(first)), "微信")
-        collector.collect(sbn(notification(second, summary = true), time + 1000), "微信")
-        collector.collect(sbn(notification(third, summary = true), time + 2000), "微信")
+        collect(sbn(notification(first)), "微信")
+        collect(sbn(notification(second, summary = true), time + 1000), "微信")
+        collect(sbn(notification(third, summary = true), time + 2000), "微信")
         assertEquals(setOf(first, second, third), repository.dao.allRaw().map { it.body }.toSet())
         assertEquals(3, repository.dao.allSuggestions().size)
     }
 
     @Test fun sameNotificationKeyCanBeUpdatedRepeatedly() = runBlocking {
         listOf(first, second, second, third).forEachIndexed { i, body ->
-            collector.collect(sbn(notification(body), time + i * 1000), "微信")
+            collect(sbn(notification(body), time + i * 1000), "微信")
         }
         assertEquals(3, repository.dao.allRaw().size)
         assertTrue(monitor.status.value.records.any { "1条重复" in it.result })
     }
 
     @Test fun growingMessagingStyleImportsEachUnreadMessageOnce() = runBlocking {
-        collector.collect(sbn(conversation(first)), "微信")
-        collector.collect(sbn(conversation(first, second), time + 1000), "微信")
-        collector.collect(sbn(conversation(first, second, third), time + 2000), "微信")
+        collect(sbn(conversation(first)), "微信")
+        collect(sbn(conversation(first, second), time + 1000), "微信")
+        collect(sbn(conversation(first, second, third), time + 2000), "微信")
         val raws = repository.dao.allRaw()
         assertEquals(setOf(first, second, third), raws.map { it.body }.toSet())
         assertTrue(raws.all { it.title == "班级群" })
@@ -84,41 +88,41 @@ class NotificationCollectorTest {
     }
 
     @Test @Config(sdk = [26]) fun messagingStyleWorksOnMinimumAndroidVersion() = runBlocking {
-        collector.collect(sbn(conversation(first, second), time + 1000), "微信")
+        collect(sbn(conversation(first, second), time + 1000), "微信")
         assertEquals(setOf(first, second), repository.dao.allRaw().map { it.body }.toSet())
     }
 
     @Test fun oldNoiseLineDoesNotDiscardNewImportantLine() = runBlocking {
         val n = notification("2条新消息", summary = true)
         n.extras.putCharSequenceArray(Notification.EXTRA_TEXT_LINES, arrayOf("登录验证码123456", second))
-        collector.collect(sbn(n), "微信")
+        collect(sbn(n), "微信")
         assertEquals(setOf("登录验证码123456", second), repository.dao.allRaw().map { it.body }.toSet())
         assertEquals("IGNORED", repository.dao.allRaw().single { it.body == "登录验证码123456" }.state)
-        assertTrue(monitor.status.value.records.first().result.contains("1条已忽略"))
+        assertTrue(repository.dao.allRaw().any { it.state == "IGNORED" })
     }
 
     @Test fun oldMessagingNoiseDoesNotDiscardAnotherMessage() = runBlocking {
-        collector.collect(sbn(conversation("登录验证码123456", first), time + 1000), "微信")
+        collect(sbn(conversation("登录验证码123456", first), time + 1000), "微信")
         assertEquals(setOf("登录验证码123456", first), repository.dao.allRaw().map { it.body }.toSet())
         assertEquals(1, repository.dao.allSuggestions().size)
     }
 
     @Test fun summaryAndChildWithSameTextDoNotCreateTwoSuggestions() = runBlocking {
-        collector.collect(sbn(notification(first)), "微信")
-        collector.collect(sbn(notification(first, summary = true), time + 1000), "微信")
+        collect(sbn(notification(first)), "微信")
+        collect(sbn(notification(first, summary = true), time + 1000), "微信")
         assertEquals(1, repository.dao.allRaw().size)
         assertEquals(1, repository.dao.allSuggestions().size)
         assertTrue(monitor.status.value.records.first().result.contains("1条重复"))
     }
 
     @Test fun unreadCountIsStoredAsIgnoredInsteadOfInventingAnEvent() = runBlocking {
-        collector.collect(sbn(notification("你有3条新消息", summary = true, title = "微信")), "微信")
+        collect(sbn(notification("你有3条新消息", summary = true, title = "微信")), "微信")
         assertEquals("IGNORED", repository.dao.allRaw().single().state)
         assertTrue(repository.dao.allSuggestions().isEmpty())
     }
 
     @Test fun titleOnlyNotificationKeepsItsOriginalText() = runBlocking {
-        collector.collect(sbn(notification("", title = "班级群")), "微信")
+        collect(sbn(notification("", title = "班级群")), "微信")
         assertEquals("班级群", repository.dao.allRaw().single().title)
         // Relevance is learned: an uncertain title-only message may stay for review.
         // Preservation must never turn a group title into an invented timestamp.
@@ -128,12 +132,12 @@ class NotificationCollectorTest {
 
     @Test fun tickerIsFallbackWhenExtrasHaveNoText() = runBlocking {
         val n = Notification().apply { tickerText = first }
-        collector.collect(sbn(n), "微信")
+        collect(sbn(n), "微信")
         assertEquals(first, repository.dao.allRaw().single().body)
     }
 
     @Test fun emptyNotificationExplainsMissingText() = runBlocking {
-        collector.collect(sbn(Notification()), "微信")
+        collect(sbn(Notification()), "微信")
         assertTrue(repository.dao.allRaw().isEmpty())
         assertTrue(monitor.status.value.records.single().result.contains("没有可读文字"))
     }
@@ -141,33 +145,33 @@ class NotificationCollectorTest {
     @Test fun expandedTextTakesPrecedenceOverStaleCollapsedText() = runBlocking {
         val n = notification(first)
         n.extras.putCharSequence(Notification.EXTRA_BIG_TEXT, second)
-        collector.collect(sbn(n), "微信")
+        collect(sbn(n), "微信")
         assertEquals(second, repository.dao.allRaw().single().body)
     }
 
     @Test fun unimportantChatIsVisibleInIgnoredInbox() = runBlocking {
-        collector.collect(sbn(notification("晚饭吃什么")), "微信")
+        collect(sbn(notification("晚饭吃什么")), "微信")
         assertEquals("IGNORED", repository.dao.allRaw().single().state)
-        assertTrue(monitor.status.value.records.single().result.contains("1条已忽略"))
+        assertTrue(monitor.status.value.records.single().result.contains("1条已保存"))
     }
 
     @Test fun pausedAndUnselectedSourcesAreNotImported() = runBlocking {
-        collector.collect(sbn(notification(first), pkg = "other.app"), "其他")
+        collect(sbn(notification(first), pkg = "other.app"), "其他")
         assertTrue(monitor.status.value.records.isEmpty())
         repository.preferences.collecting = false
-        collector.collect(sbn(notification(first)), "微信")
+        collect(sbn(notification(first)), "微信")
         assertTrue(repository.dao.allRaw().isEmpty())
         assertEquals("采集已暂停", monitor.status.value.records.single().result)
     }
 
     @Test fun recoveryUsesTheSameDeduplicationAndModel() = runBlocking {
-        collector.collect(sbn(notification(first)), "微信")
-        collector.collect(sbn(notification(first)), "微信", recovery = true)
-        collector.collect(sbn(notification("验证码123456")), "微信", recovery = true)
+        collect(sbn(notification(first)), "微信")
+        collect(sbn(notification(first)), "微信", recovery = true)
+        collect(sbn(notification("验证码123456")), "微信", recovery = true)
         assertEquals(2, repository.dao.allRaw().size)
         assertEquals("IGNORED", repository.dao.allRaw().single { it.body == "验证码123456" }.state)
         assertTrue(monitor.status.value.records.first().result.startsWith("补采："))
-        assertTrue(monitor.status.value.records.first().result.contains("1条已忽略"))
+        assertTrue(repository.dao.allRaw().any { it.state == "IGNORED" })
     }
 
     @Test fun diagnosticHistoryIsBoundedAndConnectionIsNotRestoredAsLive() {

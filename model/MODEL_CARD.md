@@ -1,43 +1,41 @@
-# 忆迹 TinyBERT 中文通知模型 v2
+# 忆迹 TinyBERT 消息二分类模型 v2.1
 
-## 输入与输出
+本版 TinyBERT 只区分 CHAT（聊天／非待办）与 SCHEDULE（日程候选）。不再输出事项类别、时间实体、状态或新建／变更／取消意图。完整事项提取由用户选定的云端 API 模型完成。
 
-基础模型为华为诺亚方舟实验室 [TinyBERT_4L_zh](https://huggingface.co/huawei-noah/TinyBERT_4L_zh)，4 层、隐藏维度 312、12 个注意力头。固定 revision `152bf15d86715b41dd89c1e03cf5664963d9b005`，官方原始权重 SHA-256 为 `b4aec782e4a56727bb6ba1dcac8e6c3319460e58e11254f7e43a2dccee0c19c1`。
+## 来源和重新训练
 
-共享编码器使用正文（正文为空时使用标题），同时输出：
+沿用中文 TinyBERT 4 层、312 隐藏维度、12 注意力头架构，在已校验的官方预训练编码器上重新微调一个二分类头。没有把 v2.0 的类别头改名后直接使用。
 
-| 输出 | 标签 |
-| --- | --- |
-| 通知路由／类别 | IGNORE、作业、报名、会议、课程、活动、考试、材料、其他 |
-| 实体 BIO | EVENT、LOCATION、START_TIME、END_TIME、DUE_TIME、REFERENCE_TIME |
-| 缺失实体时的事项类型 | SCHEDULE、DEADLINE、MIXED |
-| 时间状态 | KNOWN、TO_BE_ANNOUNCED、BOOKING_REQUIRED |
-| 操作意图 | NEW、UPDATE、CANCEL |
+- 基础模型：huawei-noah/TinyBERT_4L_zh
+- 固定 revision：152bf15d86715b41dd89c1e03cf5664963d9b005
+- 官方原始权重 SHA-256：b4aec782e4a56727bb6ba1dcac8e6c3319460e58e11254f7e43a2dccee0c19c1
+- 二分类头：CLS 与掩码平均向量拼接，线性层、GELU、Dropout、二分类输出。
+- 实际训练：CPU PyTorch 2.14.1+cpu，Transformers 4.57.6，种子 42，5 轮，验证集选择第4轮。
+- 训练／验证／测试：5,000／600／600 条合成资料，按句式集合划分并跨集合去除完全相同文本，主题词汇共享。
+- 本次没有新增私聊或真实通知训练资料，也没有独立真实消息测试集。旧版本的三条私有训练通知不在本次公开训练数据中。
 
-文档头使用 CLS 与掩码平均向量拼接，接两层分类网络。实体头逐 token 输出 13 类 logits。最大窗口 384 token，重叠 96 token；重叠实体 logits 按离窗口边界的距离加权，文档 logits 按窗口取平均。WordPiece 在 Kotlin 保留原始 UTF-16 偏移，使用同一官方词表。
+训练生成器仅制作训练资料，生成规则不进入 Android 运行时。工具、逐轮损失、各划分数据 SHA-256 和评估计数见 train_gate.py 与 gate_training_report.json。
 
-IGNORE 概率达到 0.80 才自动进入已忽略；不够确定时保留待核对草稿。类别把握低于 0.70 会提示。上述阈值作用于模型输出，没有关键词名单或文本分类回退。日历运算、重复指纹、时间冲突、人工确认和标题相似度关联是确定性的后续操作，不决定通知是否重要或事项类别。
+## 路由策略
 
-## 实际训练范围
+输入仅为正文，正文为空时才使用标题，避免仅凭群名称把普通聊天提升为事项。最大窗口384 token，重叠96 token。长消息取各窗口的最高日程概率，防止短通知被大量聊天稀释。
 
-从已完成的 EVENT/TIME/LOCATION NER 微调编码器继续，增加新的时间角色与文档分类头。联合训练依次进行 7、6、3 轮，每阶段按合成验证集表现保存 checkpoint，最终阶段选第 2 轮。CPU PyTorch 2.10.0，Transformers 4.57.6，种子 42，AdamW，学习率 4e-5，按长度分组的 batch 24、少量人工资料提高采样权重。每一阶段的实际日志与数据 SHA-256 均随仓库提供。
+CHAT 概率达到0.995才进入已忽略；其余内容保留为日程候选，再由云端复核。这个概率没有通过真实消息校准，不能显示成真实准确率。已忽略原文保留，用户可主动送云端复核。未配置或未授权云端时，候选原文等待配置，不凭空生成本地事项。
 
-最终训练集 3,969 条（3,966 条明确生成的合成资料与用户提供的 3 条人工标注通知），验证和测试各 360 条合成资料。句式按集合隔离，事件和地点词汇共享。生成器用模板直接写入类别、角色与意图标注；这属于训练资料制作，生成规则不会进入 Android 推理路径。
+## 导出与评估
 
-三条真实资料包括干部纳新材料截止／面试待定、体测已启动但个人需预约、MathorCup 跨日赛程。原始音乐会通知没有进入训练集、验证集或合成测试集。三条新增通知参与过训练，对它们的检查仅是训练回归。用户原文及邮箱未公开；公共训练工具默认仅生成合成资料。
+- 动态 UINT8、按通道量化 MatMul/Gather，ONNX opset17、IR8。
+- 模型：11,637,318 字节。
+- 模型 SHA-256：1787ba006ccbb73289267499a9f6b8ecda22594a02497782d1c497430f7392de
+- 合成测试 INT8：日程召回99.0%（297/300），日程精确率86.09%，二分类准确率91.5%。
+- 量化前 FP32 合成测试：日程召回99.0%，精确率85.34%，准确率91.0%。
+- Android/JVM 使用 ONNX Runtime1.23.2，Python 导出验证使用1.31.0。
 
-## 导出验证
+以上是共享词汇、合成句式上的路由指标，不能当作真实微信消息准确率、云端提取准确率或端到端效果。二分类仍可能误判，后续应补充真实、去标识、独立标注的消息评测。
 
-ONNX opset 17、IR 8，使用按通道的动态 UINT8 权重量化（MatMul、Gather），Android ONNX Runtime 1.23.2；Python 导出检查使用 ONNX Runtime 1.31.0。模型文件 11,907,937 字节，SHA-256：
+## 来源记录
 
-`88ed8dadde2a9d32a489f723751d09a25ad5ba2ebaaa8237f57a080cc150e924`
+官方代码：https://github.com/huawei-noah/Pretrained-Language-Model/tree/master/TinyBERT
+随附 TinyBERT-CODE-LICENSE 记录官方代码的 Apache2.0 许可证，不把代码许可证扩大解释为独立的权重许可声明。
 
-360 条合成测试上的严格实体 F1：FP32 85.76%，INT8 84.71%。INT8 文档路由／类别准确率 92.78%，事项类型头 69.44%，状态头 95.28%，操作头 98.33%。FP32 ONNX 与 PyTorch 探针最大绝对差约 5.72e-6。详细计数见 [export_report.json](export_report.json)。
-
-这些分数只衡量共享词汇的合成句式，不能当作真实消息准确率、端到端事项正确率或生产可用性证明。缺少有代表性的真实负例和独立人工评测，仍可能出现实体边界错误、类别误判、漏识别、长文本窗口偏差及复杂多事项配对错误。时间类型头尤其需要更多真实资料。所有建议都保留原文并要求核对，不能自动修改已确认事项。
-
-## 来源与许可证记录
-
-官方代码来源为 [Huawei TinyBERT](https://github.com/huawei-noah/Pretrained-Language-Model/tree/master/TinyBERT)。随附 [TinyBERT-CODE-LICENSE](TinyBERT-CODE-LICENSE) 是官方代码目录 Apache License 2.0 的副本；模型文件页没有单独的权重许可证文件或许可证元数据，本项目不把代码许可证声明扩大为独立的模型权重授权声明。Android 推理依赖见 [ONNX Runtime 官方 Android 指南](https://onnxruntime.ai/docs/tutorials/mobile/deploy-android.html)。
-
-本次发布是可安装的开发测试包。JVM 原生推理、Room 和 Compose 测试验证逻辑与 Java 调用，不能替代 Android 真机速度、耗电、通知权限及厂商后台限制验证。
+旧 v2.0 联合抽取模型资料保存在 MODEL_CARD_v2.0.0.md；旧 training_report.json、initial_joint_training_report.json、time_role_training_report.json、export_report.json 均属于历史模型，不代表本版二分类模型。

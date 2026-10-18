@@ -22,7 +22,7 @@ class RepositoryTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("yiji-settings", Context.MODE_PRIVATE).edit().clear().commit()
         database = Room.inMemoryDatabaseBuilder(context, YijiDatabase::class.java).allowMainThreadQueries().build()
-        repository = Repository(database, Preferences(context), ReminderScheduler(context))
+        repository = Repository(database, Preferences(context), ReminderScheduler(context), cn.yiji.app.TestExtraction.extractor)
     }
     @After fun teardown() { database.close() }
     private suspend fun initialEvent(): Pair<Event, RawMessage> {
@@ -94,7 +94,7 @@ class RepositoryTest {
         val id = repository.ingest("班级群", "明天14点到301集合，带学生证", "微信", "test.app", reference)
         assertEquals("PENDING", repository.dao.raw(id)!!.state)
         val suggestion = repository.dao.allSuggestions().single()
-        assertEquals("TinyBERT 离线模型 v2", suggestion.engine)
+        assertEquals("测试云端提取", suggestion.engine)
         assertEquals("301", suggestion.location)
         assertNotNull(suggestion.startAt)
         assertNull(suggestion.endAt)

@@ -7,35 +7,31 @@ import org.json.JSONObject
 import java.nio.LongBuffer
 import kotlin.math.exp
 
-data class ModelEntity(val label: String, val start: Int, val end: Int, val text: String, val confidence: Double)
-data class ModelPrediction(val category: String, val kind: String, val state: String, val operation: String,
-    val confidence: Double, val entities: List<ModelEntity>)
+data class GatePrediction(val candidate: Boolean, val scheduleProbability: Double, val uncertain: Boolean)
+fun interface MessageGate { suspend fun classify(text: String): GatePrediction }
 
-/** Only learned logits decide relevance, categories, time roles and change intent. */
+/** v2.1 graph has one binary routing head, no extraction heads. */
 class TinyBertModel(model: ByteArray, vocabulary: List<String>, metadata: JSONObject) : AutoCloseable {
     private val tokenizer = BertWordPiece(vocabulary)
-    private val labels = metadata.getJSONArray("labels").let { a -> List(a.length()) { a.getString(it) } }
-    private val heads = listOf("route", "kind", "state", "operation").map { key ->
-        metadata.getJSONObject("heads").getJSONArray(key).let { a -> List(a.length()) { a.getString(it) } }
-    }
     private val maxLength = metadata.getInt("max_length")
     private val stride = metadata.getInt("stride")
+    private val ignoreThreshold = metadata.getDouble("chat_ignore_threshold")
     private val environment = OrtEnvironment.getEnvironment()
     private val session = OrtSession.SessionOptions().use { options ->
-        options.setIntraOpNumThreads(2); options.setInterOpNumThreads(1)
+        options.setIntraOpNumThreads(2)
+        options.setInterOpNumThreads(1)
         environment.createSession(model, options)
     }
-    init { require(maxLength in 16..512 && stride in 1 until maxLength - 2) }
-
-    @Synchronized
-    fun predict(text: String): ModelPrediction {
+    init {
+        require(metadata.getString("task") == "binary_gate")
+        require(metadata.getJSONArray("labels").getString(0) == "CHAT" && metadata.getJSONArray("labels").getString(1) == "SCHEDULE")
+        require(maxLength in 16..512 && stride in 1 until maxLength - 2 && ignoreThreshold in .8..1.0)
+    }
+    @Synchronized fun predict(text: String): GatePrediction {
         val pieces = tokenizer.tokenize(text)
         require(pieces.isNotEmpty()) { "通知没有可识别的文字" }
-        val votes = Array(pieces.size) { DoubleArray(labels.size) }
-        val seen = DoubleArray(pieces.size)
-        val documents = heads.map { DoubleArray(it.size) }
         var first = 0
-        var windows = 0
+        var probability = 0.0
         while (first < pieces.size) {
             val last = minOf(first + maxLength - 2, pieces.size)
             val ids = longArrayOf(tokenizer.cls) + pieces.subList(first, last).map { it.id }.toLongArray() + tokenizer.sep
@@ -45,56 +41,20 @@ class TinyBertModel(model: ByteArray, vocabulary: List<String>, metadata: JSONOb
                     OnnxTensor.createTensor(environment, LongBuffer.wrap(LongArray(ids.size)), shape).use { types ->
                         session.run(mapOf("input_ids" to input, "attention_mask" to mask, "token_type_ids" to types)).use { result ->
                             @Suppress("UNCHECKED_CAST")
-                            val tags = (result[0].value as Array<Array<FloatArray>>)[0]
-                            for (i in first until last) {
-                                // Give complete context more weight than a truncated window edge.
-                                val weight = minOf(i - first + 1, last - i, stride).toDouble() / stride
-                                for (j in labels.indices) votes[i][j] += tags[i - first + 1][j] * weight
-                                seen[i] += weight
-                            }
-                            for (h in heads.indices) {
-                                @Suppress("UNCHECKED_CAST")
-                                val logits = (result[h + 1].value as Array<FloatArray>)[0]
-                                for (j in logits.indices) documents[h][j] += logits[j]
-                            }
+                            val logits = (result[0].value as Array<FloatArray>)[0]
+                            require(logits.size == 2)
+                            val max = logits.max().toDouble()
+                            val chat = exp(logits[0] - max)
+                            val schedule = exp(logits[1] - max)
+                            probability = maxOf(probability, schedule / (chat + schedule))
                         }
                     }
                 }
             }
-            windows++
             if (last == pieces.size) break
             first = last - stride
         }
-        val docProbabilities = documents.map { softmax(it.map { value -> value / windows }.toDoubleArray()) }
-        val decisions = docProbabilities.mapIndexed { i, probabilities -> heads[i][probabilities.indices.maxBy { probabilities[it] }] }
-        val entities = mutableListOf<ModelEntity>()
-        var active: String? = null
-        var start = 0
-        var end = 0
-        var confidence = 0.0
-        var count = 0
-        fun flush() {
-            active?.let { entities += ModelEntity(it, start, end, text.substring(start, end), confidence / count) }
-            active = null; count = 0; confidence = 0.0
-        }
-        pieces.forEachIndexed { i, piece ->
-            val p = softmax(votes[i].map { it / seen[i] }.toDoubleArray())
-            val index = p.indices.maxBy { p[it] }
-            val label = labels[index]
-            val kind = label.substringAfter('-', "")
-            if (label == "O" || !label.startsWith("I-") || active != kind) flush()
-            if (label != "O") {
-                if (active == null) { active = kind; start = piece.start }
-                end = piece.end; confidence += p[index]; count++
-            }
-        }
-        flush()
-        return ModelPrediction(decisions[0], decisions[1], decisions[2], decisions[3], docProbabilities[0].max(), entities)
+        return GatePrediction(1.0 - probability < ignoreThreshold, probability, probability in (1.0 - ignoreThreshold)..0.7)
     }
     override fun close() = session.close()
-
-    private fun softmax(values: DoubleArray): DoubleArray {
-        val max = values.max(); val numbers = values.map { exp(it - max) }; val sum = numbers.sum()
-        return numbers.map { it / sum }.toDoubleArray()
-    }
 }

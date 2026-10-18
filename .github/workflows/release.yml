@@ -2,7 +2,7 @@ name: Build and publish APK
 
 on:
   push:
-    branches: [main, v2.0.0]
+    branches: [main]
     paths:
       - app/build.gradle.kts
       - app/src/**
@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
+      YIJI_SIGNING_CERTIFICATE_SHA256: 041f228046082db2aaf03367fc29417b0620aadc45a4c5c05d42a08c579f0fea
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,6 +68,35 @@ jobs:
           subprocess.run([str(manager), "platforms;android-35", "build-tools;35.0.0"], input="y\n" * 100, text=True, check=True)
           PY
 
+      - name: Restore fixed APK signing from encrypted repository secrets
+        if: steps.version.outputs.published != 'true'
+        env:
+          YIJI_KEYSTORE_BASE64: ${{ secrets.YIJI_KEYSTORE_BASE64 }}
+          YIJI_KEYSTORE_PASSWORD: ${{ secrets.YIJI_KEYSTORE_PASSWORD }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib
+          encoded = os.environ.get("YIJI_KEYSTORE_BASE64", "")
+          password = os.environ.get("YIJI_KEYSTORE_PASSWORD", "")
+          if not encoded or not password:
+              raise SystemExit("Missing fixed signing secrets; refusing temporary signing.")
+          directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "yiji-signing"
+          directory.mkdir(mode=0o700, exist_ok=True)
+          keystore = directory / "yiji-signing.p12"
+          keystore.write_bytes(base64.b64decode("".join(encoded.split()), validate=True))
+          keystore.chmod(0o600)
+          def escape(value):
+              return value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r").replace(" ", "\\ ").replace("=", "\\=").replace(":", "\\:")
+          properties = directory / "signing.properties"
+          values = {"storeFile": str(keystore), "storeType": "PKCS12", "storePassword": password, "keyAlias": "yiji", "keyPassword": password}
+          properties.write_text("".join(f"{key}={escape(value)}\n" for key, value in values.items()), encoding="utf-8")
+          properties.chmod(0o600)
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"YIJI_SIGNING_PROPERTIES={properties}\nYIJI_REQUIRE_STABLE_SIGNING=true\n")
+          print("Fixed signing configuration restored.")
+          PY
+
       - name: Test, lint and build
         if: steps.version.outputs.published != 'true'
         shell: bash
@@ -82,14 +112,18 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import hashlib, os, pathlib, shutil, subprocess, xml.etree.ElementTree as ET
+          import hashlib, os, pathlib, re, shutil, subprocess, xml.etree.ElementTree as ET
           version, tag = os.environ["VERSION"], os.environ["TAG"]
           target = pathlib.Path("release-artifacts")
           target.mkdir(exist_ok=True)
           apk = target / f"yiji-{tag}-debug.apk"
           shutil.copyfile("app/build/outputs/apk/debug/app-debug.apk", apk)
           tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
-          subprocess.run([str(tools / "apksigner"), "verify", "--print-certs", str(apk)], check=True)
+          certificates = subprocess.check_output([str(tools / "apksigner"), "verify", "--print-certs", str(apk)], text=True)
+          print(certificates)
+          fingerprints = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]+)", certificates)
+          if [value.lower() for value in fingerprints] != [os.environ["YIJI_SIGNING_CERTIFICATE_SHA256"]]:
+              raise SystemExit("APK signing certificate does not match the fixed v2.1.0 certificate")
           badging = subprocess.check_output([str(tools / "aapt"), "dump", "badging", str(apk)], text=True)
           if f"versionName='{version}'" not in badging:
               raise SystemExit("APK version does not match release tag")
@@ -108,7 +142,7 @@ jobs:
               raise SystemExit("Lint errors found")
           notes_path = pathlib.Path(f"RELEASE_NOTES_{tag}.md")
           notes = notes_path.read_text() if notes_path.exists() else f"# 忆迹 {tag}\n"
-          notes += f"\n\n## 本次发布构建\n\n源码提交：{os.environ['GITHUB_SHA']}。GitHub Actions 验证 {tests} 项测试通过、Lint 无错误，APK 签名与版本校验通过。\n\n本发布包由 CI 独立构建，最终文件校验值以 SHA256SUMS.txt 为准。此包为 Android 调试测试包；升级前请导出并保存备份，如提示签名不一致，再卸载旧版、安装新版并恢复。\n"
+          notes += f"\n\n## 本次发布构建\n\n源码提交：{os.environ['GITHUB_SHA']}。GitHub Actions 验证 {tests} 项测试通过、Lint 无错误，APK 版本及固定签名校验通过。\n\n签名证书 SHA-256：{os.environ['YIJI_SIGNING_CERTIFICATE_SHA256']}。与此前交付的 v2.1.0 APK 使用同一密钥；后续发布沿用该签名。v2.0.0 及更早版本可能需要先备份后重新安装。\n\n本发布包由 CI 独立构建，最终文件校验值以 SHA256SUMS.txt 为准；此包为 Android 开发测试包。\n"
           notes_file = target / f"RELEASE_NOTES_{tag}.md"
           notes_file.write_text(notes, encoding="utf-8")
           assets = [apk, source, notes_file]
@@ -141,3 +175,8 @@ jobs:
             app/build/reports/tests/
             app/build/reports/lint-results-debug.*
             app/build/test-results/testDebugUnitTest/
+
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/yiji-signing"

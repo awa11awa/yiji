@@ -40,7 +40,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
+fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = repository.preferences
     val monitor = (context.applicationContext as YijiApplication).notificationMonitor
@@ -101,6 +101,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
         .map { it.activityInfo.packageName to it.loadLabel(context.packageManager).toString() }
         .distinctBy { it.first }.sortedBy { it.second } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        item { ApiSettingsEntry(repository, onApi) }
         item { SettingsSection("通知接入") {
             Text("授权后仅接收选定应用发布的系统通知。完整聊天记录可通过粘贴或分享文本导入。", style = MaterialTheme.typography.bodyMedium)
             if (!authorized) OutlinedButton(onClick = { consent = true }, modifier = Modifier.fillMaxWidth()) { Text("授权读取系统通知") }
@@ -151,19 +152,19 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState) {
             ReminderChips(reminder) { reminder = it; prefs.defaultReminder = it }
         } }
         item { SettingsSection("本地模型") {
-            Text("TinyBERT 4L-312D · 中文日程模型 v2", fontWeight = FontWeight.Bold)
-            Text("模型随安装包内置，在手机上完成通知筛选、事项分类和时间角色识别，无需联网或配置服务。首次识别需要加载模型。", style = MaterialTheme.typography.bodyMedium)
-            Text("当前模型为初始微调版本，请核对识别结果。具体时间尚待通知或需预约的事项会保留为草稿。", style = MaterialTheme.typography.bodySmall)
+            Text("TinyBERT 4L-312D · 聊天／日程二分类 v2.1", fontWeight = FontWeight.Bold)
+            Text("模型随安装包内置，仅在手机上筛选聊天与日程候选。时间、地点、类别及多事项提取由你选定的云端模型完成。", style = MaterialTheme.typography.bodyMedium)
+            Text("筛选不确定时保留为候选。未配置 API 时只保存候选原文；误判的聊天消息可在通知箱送云端复核。训练主要使用合成样本，真实消息仍需核对。", style = MaterialTheme.typography.bodySmall)
         } }
         item { SettingsSection("数据与备份") {
-            Text("事项、原文和历史保存在本机。备份包含通知内容，请保存到自己的位置。权限和应用选择不包含在备份内。", style = MaterialTheme.typography.bodyMedium)
+            Text("事项、原文和历史保存在本机。备份包含通知内容，请保存到自己的位置。权限、应用选择及 API 配置和密钥不包含在备份内。", style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = { export.launch("yiji-backup-${java.time.LocalDate.now()}.json") }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("导出备份") }
             OutlinedButton(onClick = { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("从备份恢复") }
             TextButton(onClick = { clearDialog = true }, enabled = !busy) { Text("清空本地数据", color = MaterialTheme.colorScheme.error) }
         } }
         item { Text("忆迹 v${BuildConfig.VERSION_NAME}\n多源通知语义关联与时序冲突检测", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
-    if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("允许忆迹接收通知") }, text = { Text("系统通知可能包含私人信息。忆迹只处理你选择的来源；TinyBERT 模型在手机上运行，通知内容保存在本机。你随时可以暂停采集或撤销系统授权。") },
+    if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("允许忆迹接收通知") }, text = { Text("系统通知可能包含私人信息。忆迹只处理你选择的来源；TinyBERT 筛选在手机上运行，原文先保存在本机。另行开启云端识别后，日程候选会发送到你选择的模型服务商。你随时可以暂停采集或撤销系统授权。") },
         confirmButton = { TextButton(onClick = { consent = false; openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("前往系统授权") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("稍后") } })
     if (sourceDialog) AlertDialog(onDismissRequest = { sourceDialog = false }, title = { Text("选择通知来源") }, text = {
         LazyColumn(Modifier.heightIn(max = 360.dp)) { items(apps, key = { it.first }) { (pkg, label) -> Row(Modifier.fillMaxWidth().clickable {

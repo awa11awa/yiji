@@ -5,7 +5,13 @@
 local.properties
 *.jks
 *.keystore
+*.p12
+signing.properties
+github-signing-secrets.json
+*-signing-backup-private.zip
+release-artifacts/
 .env
 .venv/
 __pycache__/
 .pytest_cache/
+*.log

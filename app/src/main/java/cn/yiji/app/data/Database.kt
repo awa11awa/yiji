@@ -1,6 +1,8 @@
 package cn.yiji.app.data
 
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import cn.yiji.app.core.*
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
@@ -40,6 +42,12 @@ data class RawMessage(
     val state: String = "PENDING", val fingerprint: String = "", val info: String = "",
 )
 
+@Entity(tableName = "message_jobs", foreignKeys = [ForeignKey(entity = RawMessage::class,
+    parentColumns = ["id"], childColumns = ["rawId"], onDelete = ForeignKey.CASCADE)], indices = [Index("state")])
+data class MessageJob(@PrimaryKey val rawId: String, val state: String = "QUEUED", val attempts: Int = 0,
+    val forceCloud: Boolean = false, val updatedAt: Long = System.currentTimeMillis(), val nextAttemptAt: Long = 0,
+    val candidate: Boolean = false)
+
 @Entity(tableName = "suggestions", foreignKeys = [ForeignKey(entity = RawMessage::class,
     parentColumns = ["id"], childColumns = ["rawId"], onDelete = ForeignKey.CASCADE)], indices = [Index("rawId")])
 data class Suggestion(
@@ -75,6 +83,16 @@ interface YijiDao {
     @Query("SELECT * FROM suggestions") suspend fun allSuggestions(): List<Suggestion>
     @Query("SELECT * FROM sources") suspend fun allLinks(): List<SourceLink>
     @Query("SELECT * FROM history") suspend fun allHistory(): List<History>
+    @Query("SELECT * FROM message_jobs WHERE rawId = :id") suspend fun job(id: String): MessageJob?
+    @Query("SELECT * FROM message_jobs ORDER BY updatedAt") suspend fun allJobs(): List<MessageJob>
+    @Query("SELECT * FROM message_jobs WHERE state IN ('QUEUED', 'RETRY') AND nextAttemptAt <= :now ORDER BY updatedAt LIMIT 8") suspend fun readyJobs(now: Long): List<MessageJob>
+    @Query("UPDATE message_jobs SET state = 'PROCESSING', updatedAt = :now WHERE rawId = :id AND state IN ('QUEUED', 'RETRY')") suspend fun claimJob(id: String, now: Long): Int
+    @Query("UPDATE message_jobs SET state = 'QUEUED', nextAttemptAt = 0 WHERE state = 'PROCESSING'") suspend fun recoverJobs()
+    @Query("UPDATE message_jobs SET state = 'QUEUED', attempts = 0, nextAttemptAt = 0 WHERE state IN ('WAITING_API', 'FAILED', 'RETRY')") suspend fun resumeJobs()
+    @Query("SELECT * FROM raw_messages WHERE packageName = :pkg AND title = :title AND id != :exclude AND state != 'IGNORED' AND receivedAt <= :at AND receivedAt >= :since AND (state = 'CONFIRMED' OR EXISTS (SELECT 1 FROM message_jobs WHERE message_jobs.rawId = raw_messages.id AND candidate = 1) OR EXISTS (SELECT 1 FROM suggestions WHERE suggestions.rawId = raw_messages.id)) ORDER BY receivedAt DESC LIMIT 4")
+    suspend fun conversation(pkg: String, title: String, exclude: String, at: Long, since: Long): List<RawMessage>
+    @Query("SELECT DISTINCT events.* FROM events INNER JOIN sources ON events.id = sources.eventId INNER JOIN raw_messages ON raw_messages.id = sources.rawId WHERE events.status = 'ACTIVE' AND raw_messages.packageName = :pkg AND raw_messages.title = :title ORDER BY events.updatedAt DESC LIMIT 6")
+    suspend fun conversationEvents(pkg: String, title: String): List<Event>
     @Query("SELECT * FROM events WHERE id = :id") suspend fun event(id: String): Event?
     @Query("SELECT * FROM raw_messages WHERE id = :id") suspend fun raw(id: String): RawMessage?
     @Query("SELECT * FROM suggestions WHERE id = :id") suspend fun suggestion(id: String): Suggestion?
@@ -83,6 +101,8 @@ interface YijiDao {
     @Query("SELECT * FROM history WHERE eventId = :id ORDER BY changedAt DESC") suspend fun history(id: String): List<History>
     @Upsert suspend fun putEvent(event: Event)
     @Upsert suspend fun putRaw(raw: RawMessage)
+    @Upsert suspend fun putJob(job: MessageJob)
+    @Query("DELETE FROM message_jobs WHERE rawId = :id") suspend fun deleteJob(id: String)
     @Upsert suspend fun putSuggestion(suggestion: Suggestion)
     @Upsert suspend fun putLink(link: SourceLink)
     @Upsert suspend fun putHistory(history: History)
@@ -93,5 +113,16 @@ interface YijiDao {
     @Query("DELETE FROM raw_messages") suspend fun clearRaw()
 }
 
-@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class], version = 1, exportSchema = true)
-abstract class YijiDatabase : RoomDatabase() { abstract fun dao(): YijiDao }
+@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class], version = 2, exportSchema = true)
+abstract class YijiDatabase : RoomDatabase() {
+    abstract fun dao(): YijiDao
+    companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS message_jobs (rawId TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, forceCloud INTEGER NOT NULL, updatedAt INTEGER NOT NULL, nextAttemptAt INTEGER NOT NULL, candidate INTEGER NOT NULL, PRIMARY KEY(rawId), FOREIGN KEY(rawId) REFERENCES raw_messages(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_message_jobs_state ON message_jobs (state)")
+                db.execSQL("INSERT INTO message_jobs (rawId, state, attempts, forceCloud, updatedAt, nextAttemptAt, candidate) SELECT id, 'QUEUED', 0, 0, receivedAt, 0, 0 FROM raw_messages WHERE state = 'PENDING' AND NOT EXISTS (SELECT 1 FROM suggestions WHERE suggestions.rawId = raw_messages.id)")
+            }
+        }
+    }
+}

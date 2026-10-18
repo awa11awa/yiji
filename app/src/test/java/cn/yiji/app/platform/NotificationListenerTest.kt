@@ -58,7 +58,8 @@ class NotificationListenerTest {
         service.onNotificationPosted(sbn("后天18点前提交报名表", summary = true))
         drain()
         assertEquals(2, app.repository.dao.allRaw().size)
-        assertEquals(2, app.repository.dao.allSuggestions().size)
+        assertEquals(2, app.repository.dao.allJobs().size)
+        assertTrue(app.repository.dao.allSuggestions().isEmpty())
     }
 
     @Test fun connectionRecoversActiveNotificationsWithoutRepeatingOnRescan() = runBlocking {
