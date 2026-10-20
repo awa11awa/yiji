@@ -149,6 +149,50 @@ class NotificationCollectorTest {
         assertEquals(second, repository.dao.allRaw().single().body)
     }
 
+    @Test fun bigTextIsUsedInsteadOfAnInboxStyleSummaryLine() = runBlocking {
+        val n = notification("2条新消息")
+        n.extras.putCharSequenceArray(Notification.EXTRA_TEXT_LINES, arrayOf("【讲坛通知】各位同学：..."))
+        val full = "【讲坛通知】各位同学：明天下午14点在图书馆参加数智创业大讲坛。请携带学生证。"
+        n.extras.putCharSequence(Notification.EXTRA_BIG_TEXT, full)
+        collect(sbn(n), "微信")
+        assertEquals(full, repository.dao.allRaw().single().body)
+    }
+
+    @Test fun messagingStyleAbbreviationIsEnrichedWithoutLosingOtherMessages() = runBlocking {
+        val prefix = "【关于开展数智创业大讲坛的通知】各位同学："
+        val n = conversation(first, prefix + "...")
+        val full = prefix + "明天14点到15点在图书馆301举行，请携带学生证。"
+        n.extras.putCharSequence(Notification.EXTRA_BIG_TEXT, full)
+        collect(sbn(n, time + 1000), "微信")
+        assertEquals(setOf(first, full), repository.dao.allRaw().map { it.body }.toSet())
+        assertEquals(time + 1000, repository.dao.allRaw().single { it.body == full }.receivedAt)
+    }
+
+    @Test fun unrelatedExpandedSummaryIsNotAttachedToIndividualConversations() = runBlocking {
+        val n = conversation(first, second)
+        n.extras.putCharSequence(Notification.EXTRA_BIG_TEXT, "其他会话里完全不同的通知，很长的文字也不能覆盖原来的消息内容。")
+        collect(sbn(n), "微信")
+        assertEquals(setOf(first, second), repository.dao.allRaw().map { it.body }.toSet())
+    }
+
+    @Test fun suppliedLongTextIsPreservedThroughStorageAndBackup() = runBlocking {
+        val full = "明天14点开会。" + "讲座详情与准备要求。".repeat(350) + "这是完整正文末尾"
+        val n = notification("摘要...")
+        n.extras.putCharSequence(Notification.EXTRA_BIG_TEXT, full)
+        collect(sbn(n), "微信")
+        assertEquals(full, repository.dao.allRaw().single().body)
+        assertEquals(full, cn.yiji.app.data.BackupCodec.decode(repository.export()).raw.single().body)
+    }
+
+    @Test fun shorterStaleExpandedTextCannotReplaceALongerInboxLine() = runBlocking {
+        val full = "明天14点到15点在图书馆301参加讲坛，请携带学生证并提前到场。"
+        val n = notification("摘要")
+        n.extras.putCharSequenceArray(Notification.EXTRA_TEXT_LINES, arrayOf(full))
+        n.extras.putCharSequence(Notification.EXTRA_BIG_TEXT, "明天14点...")
+        collect(sbn(n), "微信")
+        assertEquals(full, repository.dao.allRaw().single().body)
+    }
+
     @Test fun unimportantChatIsVisibleInIgnoredInbox() = runBlocking {
         collect(sbn(notification("晚饭吃什么")), "微信")
         assertEquals("IGNORED", repository.dao.allRaw().single().state)

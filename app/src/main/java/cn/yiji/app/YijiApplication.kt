@@ -9,6 +9,7 @@ import cn.yiji.app.platform.ExtractionWork
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class YijiApplication : Application(), androidx.work.Configuration.Provider {
     override val workManagerConfiguration: androidx.work.Configuration
@@ -23,6 +24,7 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         ReminderScheduler(this).createChannel()
+        notificationScope.launch { repository.recoverMisclassifiedNotices() }
         ExtractionWork.schedule(this)
     }
 }

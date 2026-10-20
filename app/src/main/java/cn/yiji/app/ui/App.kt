@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.EventNote
@@ -43,6 +44,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     val events by repository.events.collectAsStateWithLifecycle(initialValue = emptyList())
     val raw by repository.rawMessages.collectAsStateWithLifecycle(initialValue = emptyList())
     val suggestions by repository.suggestions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val jobs by repository.jobs.collectAsStateWithLifecycle(initialValue = emptyList())
     var tabName by rememberSaveable { mutableStateOf(AppTab.HOME.name) }
     val tab = AppTab.valueOf(tabName)
     var route by rememberSaveable { mutableStateOf("") }
@@ -63,6 +65,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         route.startsWith("detail:") -> "事项详情"
         route.startsWith("edit:") -> "编辑事项"
         route.startsWith("confirm:") -> "识别确认"
+        route.startsWith("complete:") -> "补全通知正文"
         route == "new" -> "添加事项"
         route == "newHomework" -> "添加作业"
         route == "paste" -> "导入通知文本"
@@ -98,6 +101,16 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
             when {
                 route == "api" -> ApiProfilesScreen(repository, snackbar) { route = "apiGuide" }
                 route == "apiGuide" -> ApiGuideScreen()
+                route.startsWith("complete:") -> {
+                    val original = raw.find { it.id == route.removePrefix("complete:") }
+                    if (original != null) PasteScreen(original.body, initialTitle = original.title,
+                        submitLabel = "保存完整正文并重新识别", onImport = { title, body, _ ->
+                            repository.completeBody(original.id, title, body)
+                            route = ""; tabName = AppTab.INBOX.name
+                            snackbar.showSnackbar("正文已补全，已加入识别队列")
+                        })
+                    else EmptyState("通知已不存在", "请返回通知箱。", Icons.Default.Inbox)
+                }
                 route == "paste" -> PasteScreen(pasteText, onImport = { title, text, source ->
                     val result = repository.enqueueWithResult(title, text, source)
                     val rawId = result.id
@@ -143,7 +156,9 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                 tab == AppTab.INBOX -> InboxScreen(raw, suggestions, onConfirm = { route = "confirm:$it" },
                     onDismiss = { perform { repository.dismissSuggestion(it) } }, onDelete = { perform { repository.deleteRaw(it) } },
                     onPaste = { pasteText = ""; route = "paste" }, onRetry = { perform { repository.enqueueRetry(it) } },
-                    onCloudReview = { perform { repository.enqueueRetry(it, forceCloud = true) } })
+                    onCloudReview = { perform { repository.enqueueRetry(it, forceCloud = true) } },
+                    onComplete = { route = "complete:$it" }, onIgnoreRaw = { perform { repository.dismiss(it) } },
+                    onManual = { perform { route = "confirm:${repository.manualSuggestion(it)}" } }, jobs = jobs)
                 else -> SettingsScreen(repository, snackbar) { route = "api" }
             }
         }
@@ -249,9 +264,12 @@ fun EventsScreen(events: List<Event>, onEvent: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm: (String) -> Unit, onDismiss: (String) -> Unit,
-    onDelete: (String) -> Unit, onPaste: () -> Unit, onRetry: (String) -> Unit = {}, onCloudReview: (String) -> Unit = {}) {
+    onDelete: (String) -> Unit, onPaste: () -> Unit, onRetry: (String) -> Unit = {}, onCloudReview: (String) -> Unit = {},
+    onComplete: (String) -> Unit = {}, onIgnoreRaw: (String) -> Unit = {}, onManual: (String) -> Unit = {},
+    jobs: List<MessageJob> = emptyList()) {
     var filter by rememberSaveable { mutableStateOf("PENDING") }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by remember { mutableStateOf<String?>(null) }
@@ -264,11 +282,19 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
         if (filtered.isEmpty()) item { EmptyState("通知箱空空的", "粘贴通知，或在设置中启用应用通知接入。", Icons.Default.Inbox) { Button(onPaste) { Text("导入文本") } } }
         items(filtered, key = { it.id }) { r ->
             val drafts = suggestions.filter { it.rawId == r.id }
+            val job = jobs.find { it.rawId == r.id }
+            val processing = job?.state == "PROCESSING"
+            val queued = job?.state == "QUEUED"
             Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("${r.source} · ${formatTime(r.receivedAt)}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text(r.title.ifBlank { "原始通知" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(r.body, maxLines = if (expanded == r.id) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    if (expanded == r.id) {
+                        SelectionContainer { Text(r.body, overflow = TextOverflow.Clip, style = MaterialTheme.typography.bodyMedium) }
+                        Text("已采集正文 ${r.body.length} 字", style = MaterialTheme.typography.labelSmall)
+                    } else Text(r.body, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    if (NoticeSafety.mayBeIncomplete(r.body)) Text(NoticeSafety.INCOMPLETE_HINT,
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     drafts.forEach { suggestion ->
                         HorizontalDivider()
                         Text(suggestion.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -281,10 +307,16 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
                         }
                     }
                     if (r.info.isNotBlank()) Text(r.info, style = MaterialTheme.typography.bodySmall)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (drafts.isEmpty() && r.state == "PENDING") Button(onClick = { onRetry(r.id) }) { Text("重试识别") }
-                        if (drafts.isEmpty() && r.state in setOf("PENDING", "IGNORED")) TextButton(onClick = { onCloudReview(r.id) }) { Text("送云端复核") }
+                    if (job?.state == "RETRY") Text("下次自动重试：${formatTime(job.nextAttemptAt)}", style = MaterialTheme.typography.bodySmall)
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (drafts.isEmpty() && r.state == "PENDING") Button(onClick = { onRetry(r.id) }, enabled = !processing && !queued) {
+                            Text(if (processing) "识别中…" else if (queued) "等待处理" else "重试识别")
+                        }
+                        if (drafts.isEmpty() && r.state in setOf("PENDING", "IGNORED")) TextButton(onClick = { onCloudReview(r.id) }, enabled = !processing) { Text("送云端复核") }
                         TextButton(onClick = { expanded = if (expanded == r.id) null else r.id }) { Text(if (expanded == r.id) "收起原文" else "查看原文") }
+                        if (r.state != "CONFIRMED") TextButton(onClick = { onComplete(r.id) }, enabled = !processing) { Text("补全正文") }
+                        if (drafts.isEmpty() && r.state != "CONFIRMED") TextButton(onClick = { onManual(r.id) }) { Text("手动整理") }
+                        if (drafts.isEmpty() && r.state == "PENDING") TextButton(onClick = { onIgnoreRaw(r.id) }) { Text("忽略通知") }
                         TextButton(onClick = { deleteId = r.id }) { Text("删除") }
                     }
                 }

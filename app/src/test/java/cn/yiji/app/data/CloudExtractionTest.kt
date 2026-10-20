@@ -117,6 +117,8 @@ class CloudExtractionTest {
         val client = CloudExtractionClient { url, key, body ->
             calls++; assertTrue(url.endsWith("/chat/completions")); assertEquals("fixture-key", key)
             assertEquals("glm-4.7-flash", JSONObject(body!!).getString("model"))
+            assertTrue(JSONObject(body).getBoolean("stream"))
+            assertEquals("disabled", JSONObject(body).getJSONObject("thinking").getString("type"))
             ApiResponse(200, response("{\"isSchedule\":false,\"items\":[]}"))
         }
         val hybrid = HybridScheduleExtractor(context, store, client, MessageGate { GatePrediction(false, .001, false) })
@@ -135,5 +137,64 @@ class CloudExtractionTest {
         }
         assertTrue(client.test(ApiProfile.glm, "fixture-key").contains("成功"))
         assertEquals(listOf("model-a", "model-b"), client.models(ApiProfile.glm, "fixture-key"))
+    }
+
+    @Test fun cloudNegativeKeepsLectureAndScheduleChangeForReview() {
+        listOf("【关于开展第四期数智创业大讲坛的通知】各位同学：主题：什么样的人生才幸福，讲座内容：...",
+            "因10月19日的课程调整至10月24日，原定10月24日大学城校区的体测将进行相应的调整，具体调整方案另行通知。")
+            .forEach { text ->
+                val result = CloudExtractionClient.parse("{\"isSchedule\":false,\"items\":[]}", ExtractionInput(raw(text)))
+                assertFalse(result.ignored); assertTrue(result.needsReview); assertTrue(result.drafts.isEmpty())
+            }
+    }
+
+    @Test fun lectureWithNoTimeStillProducesAReviewableDraft() {
+        val text = "【关于开展第四期数智创业大讲坛的通知】主题：什么样的人生才幸福"
+        val result = CloudExtractionClient.parse(answer(item(text).put("category", "活动")), ExtractionInput(raw(text)))
+        assertEquals(1, result.drafts.size)
+        assertNull(result.drafts.single().startAt); assertNull(result.drafts.single().endAt)
+        assertTrue(result.drafts.single().issues.isNotEmpty())
+    }
+
+    @Test fun courseAndFitnessChangesCanBeKeptSeparatelyWithoutInventingNewFitnessTime() {
+        val text = "因10月19日的课程调整至10月24日，原定10月24日大学城校区的体测将进行相应的调整，具体调整方案另行通知。"
+        val course = item("10月19日的课程调整至10月24日", operation = "UPDATE").put("category", "课程")
+            .put("title", "课程调整").put("start", ref("10月24日"))
+        val fitness = item("原定10月24日大学城校区的体测将进行相应的调整", operation = "UPDATE").put("category", "活动").put("title", "体测安排调整")
+        val result = CloudExtractionClient.parse(answer(course, fitness), ExtractionInput(raw(text)))
+        assertEquals(listOf("课程", "活动"), result.drafts.map { it.category })
+        assertEquals(listOf("UPDATE", "UPDATE"), result.operations)
+        assertTrue(result.drafts.all { it.startAt == null && it.endAt == null })
+        assertTrue(result.targetIds.all { it == null })
+        assertTrue(result.drafts.all { it.issues.any { issue -> issue.contains("关联事项") } })
+    }
+
+    @Test fun localChatPredictionCannotDiscardFormalLectureOrAdjustment() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("yiji-api-profiles", Context.MODE_PRIVATE).edit().clear().commit()
+        val store = ApiProfileStore(context, MemoryApiSecrets())
+        store.save(ApiProfile.glm, "fixture-key"); store.enable(true)
+        var calls = 0
+        val client = CloudExtractionClient { _, _, _ -> calls++; ApiResponse(200, response("{\"isSchedule\":false,\"items\":[]}")) }
+        val hybrid = HybridScheduleExtractor(context, store, client, MessageGate { GatePrediction(false, .001, false) })
+        listOf("关于开展第四期数智创业大讲坛的通知，各位同学：讲座内容：...", "原定10月24日体测调整，具体方案另行通知。")
+            .forEach { assertTrue(hybrid.extract(ExtractionInput(raw(it))).needsReview) }
+        assertEquals(2, calls)
+        assertTrue(hybrid.extract(ExtractionInput(raw("晚饭吃什么").copy(title = "课程通知群"))).ignored)
+        assertEquals(2, calls)
+    }
+
+    @Test fun truncatedLocalChatIsKeptWithoutAutomaticallySendingPrivateChat() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val hybrid = HybridScheduleExtractor(context, gate = MessageGate { GatePrediction(false, .001, false) })
+        val result = hybrid.extract(ExtractionInput(raw("我们刚才聊到...")))
+        assertTrue(result.needsReview); assertFalse(result.ignored)
+    }
+
+    @Test fun providerRetryAfterIsPropagatedWithoutExposingItsBody() = runBlocking {
+        val client = CloudExtractionClient { _, _, _ -> ApiResponse(429, "sensitive-details", 120_000) }
+        val failure = runCatching { client.test(ApiProfile.glm, "fixture-key") }.exceptionOrNull() as ExtractionFailure
+        assertEquals(120_000L, failure.retryAfterMillis)
+        assertFalse(failure.userMessage.contains("sensitive"))
     }
 }

@@ -75,6 +75,7 @@ data class History(
 
 @Dao
 interface YijiDao {
+    @Query("SELECT * FROM message_jobs") fun observeJobs(): Flow<List<MessageJob>>
     @Query("SELECT * FROM events ORDER BY COALESCE(startAt, dueAt, 9223372036854775807), createdAt DESC") fun observeEvents(): Flow<List<Event>>
     @Query("SELECT * FROM raw_messages ORDER BY receivedAt DESC") fun observeRaw(): Flow<List<RawMessage>>
     @Query("SELECT * FROM suggestions WHERE state = 'PENDING'") fun observeSuggestions(): Flow<List<Suggestion>>

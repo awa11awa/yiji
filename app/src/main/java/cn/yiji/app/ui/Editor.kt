@@ -21,8 +21,9 @@ import java.time.*
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun PasteScreen(initial: String, onImport: suspend (String, String, String) -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }
+fun PasteScreen(initial: String, initialTitle: String = "", submitLabel: String = "提取重要事项",
+    onImport: suspend (String, String, String) -> Unit) {
+    var title by rememberSaveable(initialTitle) { mutableStateOf(initialTitle) }
     var body by rememberSaveable(initial) { mutableStateOf(initial) }
     var source by rememberSaveable { mutableStateOf("手动粘贴") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -45,7 +46,7 @@ fun PasteScreen(initial: String, onImport: suspend (String, String, String) -> U
                     finally { importing = false }
                 }
             }
-        }, enabled = !importing, modifier = Modifier.fillMaxWidth()) { Text(if (importing) "正在提取…" else "提取重要事项") }
+        }, enabled = !importing, modifier = Modifier.fillMaxWidth()) { Text(if (importing) "正在保存…" else submitLabel) }
         Text("试试示例", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         val examples = listOf(
             Triple("竞赛培训", "明天下午2点到3点在图书馆301召开竞赛培训。请携带电脑并准时参加。", "学院通知"),

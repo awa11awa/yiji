@@ -126,4 +126,92 @@ class ProcessingQueueTest {
         val backup = repository.export()
         assertFalse(backup.contains("fixture-key-not-for-backup")); assertFalse(backup.contains("open.bigmodel.cn"))
     }
+
+    @Test fun uncertainCloudResultStaysPendingWithoutAutomaticRepeatedCalls() = runBlocking {
+        var calls = 0
+        val repository = repo { _, _, _ -> calls++; Extraction(emptyList(), needsReview = true, info = "待核对") }
+        val id = repository.ingest("讲坛通知", "学院将举办数智创业大讲坛，具体时间另行通知", "微信")
+        repository.processQueued()
+        assertEquals("PENDING", repository.dao.raw(id)!!.state)
+        assertEquals("DONE", repository.dao.job(id)!!.state)
+        assertTrue(repository.dao.allSuggestions().isEmpty()); assertEquals(1, calls)
+    }
+
+    @Test fun repeatedRetryCannotReplaceAnInflightJobOrCreateDuplicateDrafts() = runBlocking {
+        val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        var calls = 0
+        val repository = repo { _, _, _ -> calls++; entered.complete(Unit); release.await(); Extraction(listOf(draft)) }
+        val processing = launch { repository.ingest("通知", "明晚交报告", "微信") }
+        entered.await()
+        val id = repository.dao.allRaw().single().id
+        assertTrue(runCatching { repository.enqueueRetry(id, forceCloud = true) }.isFailure)
+        assertTrue(runCatching { repository.completeBody(id, "通知", "完整正文") }.isFailure)
+        assertEquals("PROCESSING", repository.dao.job(id)!!.state)
+        release.complete(Unit); processing.join()
+        assertEquals(1, calls); assertEquals(1, repository.dao.allSuggestions().size)
+    }
+
+    @Test fun retryAfterAndAttemptLimitAreDurable() = runBlocking {
+        var calls = 0
+        val repository = repo { _, _, _ -> calls++; throw ExtractionFailure("服务限流", retryable = true, retryAfterMillis = 120_000) }
+        val before = System.currentTimeMillis()
+        val id = repository.ingest("通知", "明晚交报告", "微信")
+        assertTrue(repository.dao.job(id)!!.nextAttemptAt >= before + 120_000)
+        repeat(2) {
+            repository.dao.putJob(repository.dao.job(id)!!.copy(nextAttemptAt = 0))
+            repository.processQueued()
+        }
+        repository.processQueued()
+        assertEquals(3, calls); assertEquals("FAILED", repository.dao.job(id)!!.state)
+        assertEquals("PENDING", repository.dao.raw(id)!!.state)
+        assertTrue(repository.dao.raw(id)!!.info.contains("自动重试已停止"))
+    }
+
+    @Test fun completingBodyReusesTheOriginalRecordAndDiscardsUnconfirmedDrafts() = runBlocking {
+        val seen = mutableListOf<String>()
+        val repository = repo { _, body, _ -> seen += body; Extraction(listOf(draft)) }
+        val id = repository.ingest("讲坛通知", "摘要...", "微信", "wechat")
+        val at = repository.dao.raw(id)!!.receivedAt
+        repository.completeBody(id, "完整讲坛通知", "明天14点在图书馆参加数智创业大讲坛，这是正文末尾")
+        assertEquals(1, repository.dao.allRaw().size)
+        assertTrue(repository.dao.allSuggestions().isEmpty())
+        assertEquals(at, repository.dao.raw(id)!!.receivedAt)
+        assertTrue(repository.dao.job(id)!!.forceCloud)
+        repository.processQueued()
+        assertTrue(seen.last().endsWith("这是正文末尾")); assertEquals(1, repository.dao.allSuggestions().size)
+        val suggestion = repository.dao.allSuggestions().single()
+        repository.confirm(suggestion.id, suggestion.draft(), "NEW", null, -1)
+        assertTrue(runCatching { repository.completeBody(id, "新标题", "正文") }.isFailure)
+        assertTrue(repository.dao.raw(id)!!.body.endsWith("这是正文末尾"))
+    }
+
+    @Test fun upgradeRescuesAutomaticIgnoresAndLeavesManualDecisionsAlone() = runBlocking {
+        val repository = repo { _, _, _ -> error("rescue must not call the provider") }
+        val cloud = RawMessage(title = "通知", body = "讲坛通知", source = "微信", state = "IGNORED", info = "云端复核为聊天或非待办，原文已保留 · 智谱")
+        val local = cloud.copy(id = newId(), body = "原定体测将调整，方案另行通知", info = "TinyBERT 二分类：聊天或非日程消息，原文已保留")
+        val chat = local.copy(id = newId(), body = "晚饭吃什么")
+        val manual = cloud.copy(id = newId(), info = "已由你忽略，原文保留")
+        listOf(cloud, local, chat, manual).forEach { repository.dao.putRaw(it) }
+        assertEquals(2, repository.recoverMisclassifiedNotices())
+        assertEquals("PENDING", repository.dao.raw(cloud.id)!!.state)
+        assertEquals("PENDING", repository.dao.raw(local.id)!!.state)
+        assertEquals("IGNORED", repository.dao.raw(chat.id)!!.state)
+        assertEquals("IGNORED", repository.dao.raw(manual.id)!!.state)
+        assertEquals(0, repository.recoverMisclassifiedNotices())
+        repository.dismiss(cloud.id)
+        assertEquals("IGNORED", repository.dao.raw(cloud.id)!!.state)
+        assertEquals(0, repository.recoverMisclassifiedNotices())
+    }
+
+    @Test fun manualSuggestionCanBeConfirmedWithOriginalSourceAndNoModel() = runBlocking {
+        val repository = repo { _, _, _ -> error("manual entry must not call the provider") }
+        val id = repository.enqueueWithResult("通知", "讲坛内容摘要...", "微信").id
+        val suggestion = repository.manualSuggestion(id)
+        assertNull(repository.dao.job(id))
+        assertEquals("讲坛内容摘要...", repository.dao.suggestion(suggestion)!!.note)
+        val event = repository.confirm(suggestion, draft, "NEW", null, -1)
+        assertEquals(event, repository.dao.allLinks().single().eventId)
+        assertEquals(id, repository.dao.allLinks().single().rawId)
+        assertEquals("CONFIRMED", repository.dao.raw(id)!!.state)
+    }
 }

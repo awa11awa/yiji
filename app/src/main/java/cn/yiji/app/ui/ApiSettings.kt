@@ -265,7 +265,7 @@ fun ApiGuideScreen() {
         ), "普通聊天会员、Coding Plan 与通用 API 的密钥和计费方式可能不同，请使用服务商明确支持通用 API 调用的密钥。", null, null) }
         item {
             Text("常见问题", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("401／403：核对密钥、模型权限、账户验证和剩余额度。\n404：核对基础地址与模型名称。\n429：服务限流，忆迹会保留原文并稍后重试。\n无法获取模型列表：可以手动填写。\n未配置或断网：候选原文留在通知箱，配置好后点击继续处理。",
+            Text("401／403：核对密钥、模型权限、账户验证和剩余额度。\n404：核对基础地址与模型名称。\n429：服务限流，保留原文，至少60秒退避，最多自动重试2次。\n响应超时：流式接收单次最多3分钟，仍超时可切换配置。\n云端未提取到事项：保留待确认，可补全正文或手动整理。\n展开后仍有省略号：来源可能只提供摘要，请复制完整消息并点补全正文。\n无法获取模型列表：可以手动填写。\n未配置或断网：候选原文留在通知箱，配置好后点击继续处理。",
                 Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodyMedium)
             Text("教程核对日期：2026-10-18。服务商免费政策可能变化。", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodySmall)
         }

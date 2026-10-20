@@ -2,6 +2,7 @@ package cn.yiji.app.ml
 
 import android.content.Context
 import cn.yiji.app.core.Draft
+import cn.yiji.app.core.NoticeSafety
 import cn.yiji.app.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,7 +11,7 @@ import java.security.MessageDigest
 
 data class Extraction(val drafts: List<Draft>, val operation: String = "NEW", val ignored: Boolean = false,
     val info: String = "", val operations: List<String> = emptyList(), val targetIds: List<String?> = emptyList(),
-    val engine: String = "云端模型")
+    val engine: String = "云端模型", val needsReview: Boolean = false)
 fun interface ScheduleExtractor { suspend fun extract(title: String, body: String, receivedAt: Long): Extraction }
 interface ContextualScheduleExtractor : ScheduleExtractor {
     suspend fun extract(input: ExtractionInput): Extraction
@@ -46,8 +47,12 @@ class HybridScheduleExtractor(
     override suspend fun extract(input: ExtractionInput): Extraction {
         if (!input.forceCloud) {
             val result = gate.classify(input.current.body.ifBlank { input.current.title })
-            if (!result.candidate) return Extraction(emptyList(), ignored = true,
-                info = "TinyBERT 二分类：聊天或非日程消息，原文已保留；如有误判可送云端复核", engine = "TinyBERT 聊天／日程筛选")
+            if (!result.candidate && !NoticeSafety.protects(input.current.title, input.current.body)) {
+                if (NoticeSafety.mayBeIncomplete(input.current.body)) return Extraction(emptyList(), needsReview = true,
+                    info = "本地未检出事项，但通知正文可能不完整，已保留待核对；可补全正文或主动送云端复核", engine = "TinyBERT 聊天／日程筛选")
+                return Extraction(emptyList(), ignored = true,
+                    info = "TinyBERT 二分类：聊天或非日程消息，原文已保留；如有误判可送云端复核", engine = "TinyBERT 聊天／日程筛选")
+            }
         }
         onCandidate(input.current.id)
         val state = profiles.current
