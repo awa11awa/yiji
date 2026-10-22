@@ -47,6 +47,7 @@ class ConfirmationV212Test {
                 subtasks = listOf(Subtask("预习"), Subtask("填空"), Subtask("阅读", optional = true))))
         }
         compose.onNodeWithText("作业").performClick()
+        compose.onNodeWithText("待确认", substring = false).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("核对作业").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("核对作业").performScrollTo().performClick()
         compose.onNodeWithText("确认新建事项").performScrollTo().performClick()

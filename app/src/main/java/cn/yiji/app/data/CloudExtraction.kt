@@ -4,7 +4,6 @@ import cn.yiji.app.core.*
 import cn.yiji.app.ml.Extraction
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URL
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -17,9 +16,11 @@ fun interface ApiTransport { suspend fun request(url: String, key: String, paylo
 
 
 class CloudExtractionClient(private val transport: ApiTransport = HttpsApiTransport()) {
-    private fun checked(response: ApiResponse): String {
+    private fun checked(response: ApiResponse, key: String): String {
         if (response.status in 200..299) return response.body
         throw when (response.status) {
+            400 -> ExtractionFailure("模型请求被拒绝（HTTP 400）\n" +
+                ApiErrorDetails.hint(response, key).ifBlank { "请求参数或模型配置不兼容，请核对 API 地址及完整模型名称" })
             401, 403 -> ExtractionFailure("模型服务拒绝访问，请检查 API Key、模型权限或免费额度")
             404 -> ExtractionFailure("接口或模型不存在，请检查 API 地址和模型名称")
             408 -> ExtractionFailure("模型服务等待超时，原文保留待处理；稍后重试或切换配置", retryable = true)
@@ -30,14 +31,6 @@ class CloudExtractionClient(private val transport: ApiTransport = HttpsApiTransp
             else -> ExtractionFailure("模型请求未成功（HTTP " + response.status + "），请检查配置；原文已保留")
         }
     }
-    private fun request(profile: ApiProfile, messages: JSONArray, maxTokens: Int): JSONObject =
-        JSONObject().put("model", profile.model).put("messages", messages).put("stream", true).put("max_tokens", maxTokens).apply {
-            if (URL(profile.baseUrl).host == "open.bigmodel.cn") {
-                put("thinking", JSONObject().put("type", "disabled"))
-                put("response_format", JSONObject().put("type", "json_object"))
-                put("temperature", 0.1)
-            }
-        }
     private fun content(body: String): String = try {
         val choice = JSONObject(body).getJSONArray("choices").getJSONObject(0)
         if (choice.optString("finish_reason") == "length") throw ExtractionFailure("模型输出被截断，请缩短通知后重试")
@@ -51,7 +44,8 @@ class CloudExtractionClient(private val transport: ApiTransport = HttpsApiTransp
         profile.validate()
         require(key.isNotBlank()) { "请填写 API Key" }
         val messages = JSONArray().put(JSONObject().put("role", "user").put("content", "连接测试，请仅返回 JSON：{\"ok\":true}"))
-        val answer = content(checked(transport.request(profile.endpoint("chat/completions"), key, request(profile, messages, 128).toString())))
+        val answer = content(checked(transport.request(profile.endpoint("chat/completions"), key,
+            ModelRequestPolicy.payload(profile, messages, test = true).toString()), key))
         val result = runCatching { JSONObject(unfence(answer)) }.getOrNull()
         require(result?.optBoolean("ok") == true) { "接口已响应，但未通过 JSON 输出测试，请检查模型兼容性" }
         return "连接成功，模型已通过 JSON 输出测试"
@@ -60,7 +54,7 @@ class CloudExtractionClient(private val transport: ApiTransport = HttpsApiTransp
         profile.validate()
         require(key.isNotBlank()) { "请填写 API Key" }
         return try {
-            val array = JSONObject(checked(transport.request(profile.endpoint("models"), key, null))).getJSONArray("data")
+            val array = JSONObject(checked(transport.request(profile.endpoint("models"), key, null), key)).getJSONArray("data")
             (0 until minOf(array.length(), 1000)).mapNotNull { array.optJSONObject(it)?.optString("id")?.takeIf { id -> id.isNotBlank() && id.length <= 200 } }.distinct().sorted()
         } catch (e: ExtractionFailure) { throw e }
         catch (_: Exception) { throw ExtractionFailure("此服务未提供兼容的模型列表，请从控制台复制模型名称") }
@@ -70,7 +64,8 @@ class CloudExtractionClient(private val transport: ApiTransport = HttpsApiTransp
         require(key.isNotBlank()) { "请填写 API Key" }
         val messages = JSONArray().put(JSONObject().put("role", "system").put("content", PROMPT))
             .put(JSONObject().put("role", "user").put("content", inputJson(input).toString()))
-        val answer = content(checked(transport.request(profile.endpoint("chat/completions"), key, request(profile, messages, 6144).toString())))
+        val answer = content(checked(transport.request(profile.endpoint("chat/completions"), key,
+            ModelRequestPolicy.payload(profile, messages, test = false).toString()), key))
         val parsed = parse(answer, input)
         return parsed.copy(engine = profile.name + " · " + profile.model,
             info = (parsed.info.ifBlank { if (parsed.ignored) "云端判定为非待办，原文已保留" else "云端提取完成，请核对后确认" }) + " · " + profile.name + " / " + profile.model)

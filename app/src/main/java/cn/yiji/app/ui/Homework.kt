@@ -15,16 +15,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cn.yiji.app.core.Categories
-import cn.yiji.app.data.Event
-import cn.yiji.app.data.RawMessage
-import cn.yiji.app.data.Suggestion
+import cn.yiji.app.data.*
 import kotlinx.coroutines.delay
 
 internal fun homeworkEvents(events: List<Event>, status: String, query: String, now: Long): List<Event> =
     events.filter { event ->
         event.category == Categories.HOMEWORK &&
-            (if (status == "OVERDUE") event.status == "ACTIVE" && event.kind == "DEADLINE" &&
-                event.dueAt?.let { it < now } == true else status == "ALL" || event.status == status) &&
+            (status == "ALL" || eventBucket(event, now) == status) &&
             "${event.title} ${event.action} ${event.note} ${event.location}".contains(query.trim(), ignoreCase = true)
     }.sortedWith(compareBy<Event> { it.anchor ?: Long.MAX_VALUE }.thenBy { it.title }.thenBy { it.id })
 
@@ -36,7 +33,8 @@ internal fun pendingHomework(suggestions: List<Suggestion>, query: String = ""):
 @Composable
 fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List<RawMessage>,
     onEvent: (String) -> Unit, onConfirm: (String) -> Unit, onDismiss: (String) -> Unit,
-    onAdd: () -> Unit, onPaste: () -> Unit) {
+    onAdd: () -> Unit, onPaste: () -> Unit,
+    seen: Map<String, String> = emptyMap(), onRead: (List<ReadMarker>) -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf("ACTIVE") }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -45,10 +43,17 @@ fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List
     }
     val assignments = events.filter { it.category == Categories.HOMEWORK }
     val pending = pendingHomework(suggestions, query)
-    val showPending = status in setOf("ACTIVE", "ALL", "PENDING")
+    val showPending = status in setOf("ALL", "PENDING")
     val filtered = if (status == "PENDING") emptyList() else homeworkEvents(events, status, query, now)
-    val activeCount = assignments.count { it.status == "ACTIVE" }
+    val activeCount = homeworkEvents(assignments, "ACTIVE", "", now).size
     val overdueCount = homeworkEvents(assignments, "OVERDUE", "", now).size
+    val markers = filtered.map { eventReadMarker(it, now) } +
+        if (showPending) pending.map(::suggestionReadMarker) else emptyList()
+    LaunchedEffect(markers) { onRead(markers) }
+    fun unread(value: String): Boolean =
+        (if (value in setOf("PENDING", "ALL")) pendingHomework(suggestions).map(::suggestionReadMarker) else emptyList())
+            .plus(if (value == "PENDING") emptyList() else homeworkEvents(assignments, value, "", now).map { eventReadMarker(it, now) })
+            .any { it.unread(seen) }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 4.dp, 20.dp, 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -64,7 +69,7 @@ fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("ACTIVE" to "待完成", "PENDING" to "待确认", "OVERDUE" to "已逾期",
                     "DONE" to "已完成", "CANCELLED" to "已取消", "ALL" to "全部").forEach { (value, label) ->
-                    FilterChip(status == value, { status = value }, label = { Text(label) })
+                    StatusFilter(status == value, label, unread(value)) { status = value }
                 }
             }
         }

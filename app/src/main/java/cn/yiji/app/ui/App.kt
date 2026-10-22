@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.yiji.app.core.*
 import cn.yiji.app.data.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.*
 import java.time.format.DateTimeFormatter
@@ -59,6 +60,12 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     val raw by repository.rawMessages.collectAsStateWithLifecycle(initialValue = emptyList())
     val suggestions by repository.suggestions.collectAsStateWithLifecycle(initialValue = emptyList())
     val jobs by repository.jobs.collectAsStateWithLifecycle(initialValue = emptyList())
+    val readStore = remember(repository) { StatusReadStore(repository.preferences.context) }
+    val seen by readStore.state.collectAsStateWithLifecycle()
+    var unreadNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { unreadNow = System.currentTimeMillis(); delay(30_000) } }
+    val inboxMarkers = remember(raw, suggestions) { raw.map { rawReadMarker(it, suggestions) } }
+    val pendingMarkers = remember(suggestions) { pendingHomework(suggestions).map(::suggestionReadMarker) }
     var tabName by rememberSaveable { mutableStateOf(AppTab.HOME.name) }
     val tab = AppTab.valueOf(tabName)
     var route by rememberSaveable { mutableStateOf("") }
@@ -99,8 +106,10 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         bottomBar = { if (route.isBlank()) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
             AppTab.entries.forEach { item -> NavigationBarItem(selected = tab == item, onClick = { tabName = item.name }, icon = {
                 val count = when (item) {
-                    AppTab.INBOX -> suggestions.size + raw.count { r -> r.state == "PENDING" && suggestions.none { it.rawId == r.id } }
-                    AppTab.HOMEWORK -> pendingHomework(suggestions).size
+                    AppTab.INBOX -> inboxMarkers.count { it.unread(seen) }
+                    AppTab.HOMEWORK -> pendingMarkers.count { it.unread(seen) } +
+                        events.filter { it.category == Categories.HOMEWORK }.count { eventReadMarker(it, unreadNow).unread(seen) }
+                    AppTab.EVENTS -> events.count { eventReadMarker(it, unreadNow).unread(seen) }
                     else -> 0
                 }
                 BadgedBox(badge = { if (count > 0) Badge { Text(count.toString()) } }) { Icon(icons.getValue(item), item.label) }
@@ -162,17 +171,18 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                 route == "conflicts" -> ConflictScreen(conflicts, events) { route = "detail:$it" }
                 tab == AppTab.HOME -> HomeScreen(events, raw.count { it.state == "PENDING" }, conflicts.size, { route = "detail:$it" },
                     { tabName = AppTab.INBOX.name }, { route = "conflicts" }, { route = "paste" }, { tabName = AppTab.SETTINGS.name })
-                tab == AppTab.EVENTS -> EventsScreen(events) { route = "detail:$it" }
+                tab == AppTab.EVENTS -> EventsScreen(events, seen, readStore::markRead) { route = "detail:$it" }
                 tab == AppTab.HOMEWORK -> HomeworkScreen(events, suggestions, raw,
                     onEvent = { route = "detail:$it" }, onConfirm = { route = "confirm:$it" },
                     onDismiss = { perform { repository.dismissSuggestion(it) } }, onAdd = { route = "newHomework" },
-                    onPaste = { pasteText = ""; route = "paste" })
+                    onPaste = { pasteText = ""; route = "paste" }, seen = seen, onRead = readStore::markRead)
                 tab == AppTab.INBOX -> InboxScreen(raw, suggestions, onConfirm = { route = "confirm:$it" },
                     onDismiss = { perform { repository.dismissSuggestion(it) } }, onDelete = { perform { repository.deleteRaw(it) } },
                     onPaste = { pasteText = ""; route = "paste" }, onRetry = { perform { repository.enqueueRetry(it) } },
                     onCloudReview = { perform { repository.enqueueRetry(it, forceCloud = true) } },
                     onComplete = { route = "complete:$it" }, onIgnoreRaw = { perform { repository.dismiss(it) } },
-                    onManual = { perform { route = "confirm:${repository.manualSuggestion(it)}" } }, jobs = jobs)
+                    onManual = { perform { route = "confirm:${repository.manualSuggestion(it)}" } }, jobs = jobs,
+                    seen = seen, onRead = readStore::markRead)
                 else -> SettingsScreen(repository, snackbar) { route = "api" }
             }
         }
@@ -191,7 +201,7 @@ fun EmptyState(title: String, description: String, icon: ImageVector, action: (@
 
 @Composable
 fun EventCard(event: Event, onClick: () -> Unit) {
-    val overdue = event.status == "ACTIVE" && event.kind == "DEADLINE" && (event.dueAt ?: Long.MAX_VALUE) < System.currentTimeMillis()
+    val overdue = eventBucket(event, System.currentTimeMillis()) == "OVERDUE"
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.padding(18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
@@ -254,16 +264,24 @@ fun StatCard(label: String, count: Int, icon: ImageVector, modifier: Modifier, o
 }
 
 @Composable
-fun EventsScreen(events: List<Event>, onEvent: (String) -> Unit) {
+fun EventsScreen(events: List<Event>, seen: Map<String, String> = emptyMap(), onRead: (List<ReadMarker>) -> Unit = {},
+    onEvent: (String) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var status by rememberSaveable { mutableStateOf("ACTIVE") }
     var category by rememberSaveable { mutableStateOf("全部") }
-    val filtered = events.filter { (status == "ALL" || it.status == status) && (category == "全部" || it.category == category) &&
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(30_000) } }
+    val filtered = events.filter { (status == "ALL" || eventBucket(it, now) == status) && (category == "全部" || it.category == category) &&
         "${it.title} ${it.location} ${it.action}".contains(query, ignoreCase = true) }
+    val markers = filtered.map { eventReadMarker(it, now) }
+    LaunchedEffect(markers) { onRead(markers) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 4.dp, 20.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("搜索标题、地点或要求") }, leadingIcon = { Icon(Icons.Default.Search, null) }, singleLine = true) }
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("ACTIVE" to "进行中", "DONE" to "已完成", "CANCELLED" to "已取消", "ALL" to "全部").forEach { (value, label) -> FilterChip(status == value, { status = value }, label = { Text(label) }) }
+            listOf("ACTIVE" to "进行中", "OVERDUE" to "已逾期", "DONE" to "已完成", "CANCELLED" to "已取消", "ALL" to "全部").forEach { (value, label) ->
+                StatusFilter(status == value, label,
+                    events.any { (value == "ALL" || eventBucket(it, now) == value) && eventReadMarker(it, now).unread(seen) }) { status = value }
+            }
         } }
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             (listOf("全部") + events.map { it.category }.distinct()).forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
@@ -283,15 +301,21 @@ fun EventsScreen(events: List<Event>, onEvent: (String) -> Unit) {
 fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm: (String) -> Unit, onDismiss: (String) -> Unit,
     onDelete: (String) -> Unit, onPaste: () -> Unit, onRetry: (String) -> Unit = {}, onCloudReview: (String) -> Unit = {},
     onComplete: (String) -> Unit = {}, onIgnoreRaw: (String) -> Unit = {}, onManual: (String) -> Unit = {},
-    jobs: List<MessageJob> = emptyList()) {
+    jobs: List<MessageJob> = emptyList(), seen: Map<String, String> = emptyMap(), onRead: (List<ReadMarker>) -> Unit = {}) {
     var filter by rememberSaveable { mutableStateOf("PENDING") }
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val filtered = raw.filter { filter == "ALL" || it.state == filter }
+    val markers = remember(raw, suggestions) { raw.associate { it.id to rawReadMarker(it, suggestions) } }
+    val displayed = filtered.mapNotNull { markers[it.id] }
+    LaunchedEffect(displayed) { onRead(displayed) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("先核对，再进入你的日程。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("PENDING" to "待确认", "CONFIRMED" to "已确认", "IGNORED" to "已忽略", "ALL" to "全部").forEach { (value, label) -> FilterChip(filter == value, { filter = value }, label = { Text(label) }) }
+            listOf("PENDING" to "待确认", "CONFIRMED" to "已确认", "IGNORED" to "已忽略", "ALL" to "全部").forEach { (value, label) ->
+                StatusFilter(filter == value, label,
+                    raw.any { (value == "ALL" || it.state == value) && markers[it.id]?.unread(seen) == true }) { filter = value }
+            }
         } }
         if (filtered.isEmpty()) item { EmptyState("通知箱空空的", "粘贴通知，或在设置中启用应用通知接入。", Icons.Default.Inbox) { Button(onPaste) { Text("导入文本") } } }
         items(filtered, key = { it.id }) { r ->
