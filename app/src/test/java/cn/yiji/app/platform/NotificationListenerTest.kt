@@ -2,7 +2,10 @@ package cn.yiji.app.platform
 
 import android.app.Notification
 import android.content.Context
+import android.content.ComponentName
+import android.os.Looper
 import android.os.Process
+import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import androidx.test.core.app.ApplicationProvider
 import cn.yiji.app.YijiApplication
@@ -20,10 +23,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowNotificationListenerService
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = YijiApplication::class)
+@LooperMode(LooperMode.Mode.PAUSED)
 class NotificationListenerTest {
     private lateinit var app: YijiApplication
     private lateinit var controller: ServiceController<YijiNotificationListener>
@@ -36,10 +42,15 @@ class NotificationListenerTest {
         app.repository.clear()
         app.repository.preferences.collecting = true
         app.repository.preferences.packages = setOf("com.tencent.mm")
+        app.repository.preferences.protectCollection = false
+        Settings.Secure.putString(app.contentResolver, "enabled_notification_listeners",
+            ComponentName(app, YijiNotificationListener::class.java).flattenToString())
         controller = Robolectric.buildService(YijiNotificationListener::class.java).create()
         service = controller.get()
     }
     @After fun teardown() = runBlocking {
+        app.repository.preferences.collecting = false
+        app.collectionSupervisor.refresh()
         drain()
         if (!destroyed) controller.destroy()
         app.notificationScope.cancel()
@@ -68,6 +79,7 @@ class NotificationListenerTest {
         drain()
         assertTrue(app.notificationMonitor.status.value.connected)
         assertEquals(1, app.repository.dao.allRaw().size)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
         YijiNotificationListener.reconnectAndRecover(app)
         drain()
         assertEquals(1, app.repository.dao.allRaw().size)
@@ -91,5 +103,83 @@ class NotificationListenerTest {
         assertFalse(app.notificationMonitor.status.value.connected)
         assertTrue(app.notificationScope.coroutineContext[Job]!!.isActive)
         assertEquals(1, app.repository.dao.allRaw().size)
+    }
+
+    @Test fun automaticForegroundRecoveryDoesNotRepeatedlyScanHealthyListener() = runBlocking {
+        shadowOf(service).addActiveNotification(sbn("明天14点到301集合"))
+        service.onListenerConnected()
+        drain()
+        repeat(5) { app.collectionSupervisor.refresh(recover = true) }
+        drain()
+        assertEquals(1, app.notificationMonitor.status.value.records.count { "补采通知栏" in it.result })
+        assertEquals(1, app.repository.dao.allRaw().size)
+    }
+
+    @Test fun failedRebindAutomaticallyRetriesWithBackoffAndStopsWhenConnected() {
+        val before = ShadowNotificationListenerService.getRebindRequestCount()
+        app.collectionSupervisor.refresh()
+        repeat(5) { app.collectionSupervisor.refresh() }
+        assertEquals(before + 1, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(2, TimeUnit.SECONDS)
+        assertEquals(before + 2, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(9, TimeUnit.SECONDS)
+        assertEquals(before + 2, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertEquals(before + 3, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(30, TimeUnit.SECONDS)
+        assertEquals(before + 4, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(60, TimeUnit.SECONDS)
+        assertEquals(before + 5, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(299, TimeUnit.SECONDS)
+        assertEquals(before + 5, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertEquals(before + 6, ShadowNotificationListenerService.getRebindRequestCount())
+        shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.SECONDS)
+        assertEquals(before + 7, ShadowNotificationListenerService.getRebindRequestCount())
+        service.onListenerConnected()
+        shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.MINUTES)
+        assertEquals(before + 7, ShadowNotificationListenerService.getRebindRequestCount())
+    }
+
+    @Test fun pausingCancelsRecoveryAndPreventsNewImports() = runBlocking {
+        app.collectionSupervisor.refresh()
+        val before = ShadowNotificationListenerService.getRebindRequestCount()
+        app.repository.preferences.collecting = false
+        app.collectionSupervisor.refresh()
+        shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.MINUTES)
+        service.onNotificationPosted(sbn("明天14点到301集合"))
+        drain()
+        assertEquals(before, ShadowNotificationListenerService.getRebindRequestCount())
+        assertTrue(app.repository.dao.allRaw().isEmpty())
+    }
+
+    @Test fun revokedPermissionStopsRebindRetries() {
+        app.collectionSupervisor.refresh()
+        val before = ShadowNotificationListenerService.getRebindRequestCount()
+        Settings.Secure.putString(app.contentResolver, "enabled_notification_listeners", "")
+        shadowOf(Looper.getMainLooper()).idleFor(10, TimeUnit.MINUTES)
+        assertEquals(before, ShadowNotificationListenerService.getRebindRequestCount())
+    }
+
+    @Test fun resumeAfterPauseImmediatelyRecoversRetainedNotifications() = runBlocking {
+        service.onListenerConnected()
+        app.repository.preferences.collecting = false
+        app.collectionSupervisor.refresh()
+        shadowOf(service).addActiveNotification(sbn("后天18点前提交报名表"))
+        app.repository.preferences.collecting = true
+        app.collectionSupervisor.refresh(recover = true)
+        drain()
+        assertEquals(1, app.repository.dao.allRaw().size)
+    }
+
+    @Test fun staleServiceDestructionDoesNotDisconnectNewListener() {
+        service.onListenerConnected()
+        val newer = Robolectric.buildService(YijiNotificationListener::class.java).create()
+        newer.get().onListenerConnected()
+        controller.destroy()
+        destroyed = true
+        assertTrue(YijiNotificationListener.isConnected())
+        assertTrue(app.notificationMonitor.status.value.connected)
+        newer.destroy()
     }
 }

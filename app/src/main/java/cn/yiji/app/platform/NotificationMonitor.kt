@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class NotificationRecord(val at: Long, val source: String, val result: String)
-data class NotificationStatus(val connected: Boolean = false, val records: List<NotificationRecord> = emptyList())
+data class NotificationStatus(val connected: Boolean = false, val records: List<NotificationRecord> = emptyList(), val protectionActive: Boolean = false)
 
 /** Connection state is live only; bounded diagnostics contain no notification text. */
 class NotificationMonitor(context: Context) {
@@ -17,6 +17,10 @@ class NotificationMonitor(context: Context) {
 
     @Synchronized fun connection(connected: Boolean) {
         mutableStatus.value = mutableStatus.value.copy(connected = connected)
+    }
+
+    @Synchronized fun protection(active: Boolean) {
+        mutableStatus.value = mutableStatus.value.copy(protectionActive = active)
     }
 
     @Synchronized fun record(source: String, result: String) {

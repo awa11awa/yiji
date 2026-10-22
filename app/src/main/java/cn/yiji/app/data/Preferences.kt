@@ -14,6 +14,9 @@ class Preferences(context: Context) {
     var collecting: Boolean
         get() = prefs.getBoolean("collecting", false)
         set(value) { prefs.edit().putBoolean("collecting", value).apply() }
+    var protectCollection: Boolean
+        get() = prefs.getBoolean("protectCollection", true)
+        set(value) { prefs.edit().putBoolean("protectCollection", value).apply() }
     var packages: Set<String>
         get() = prefs.getStringSet("packages", emptySet())!!.toSet()
         set(value) { prefs.edit().putStringSet("packages", value.toSet()).apply() }

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,13 +44,15 @@ import java.time.format.DateTimeFormatter
 fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = repository.preferences
-    val monitor = (context.applicationContext as YijiApplication).notificationMonitor
+    val app = context.applicationContext as YijiApplication
+    val monitor = app.notificationMonitor
     val notificationStatus by monitor.status.collectAsStateWithLifecycle()
     val recordTime = remember { DateTimeFormatter.ofPattern("MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current
     var revision by remember { mutableIntStateOf(0) }
     var collecting by remember { mutableStateOf(prefs.collecting) }
+    var protectCollection by remember { mutableStateOf(prefs.protectCollection) }
     var packages by remember { mutableStateOf(prefs.packages) }
     var reminder by remember { mutableIntStateOf(prefs.defaultReminder) }
     var sourceDialog by remember { mutableStateOf(false) }
@@ -61,11 +64,13 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
     val authorized = remember(revision) { NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName) }
     val notificationAllowed = remember(revision) { NotificationManagerCompat.from(context).areNotificationsEnabled() }
     val exactAllowed = remember(revision) { ReminderScheduler(context).exactAllowed() }
-    LaunchedEffect(authorized, collecting, packages, revision) {
-        if (authorized && collecting && packages.isNotEmpty()) YijiNotificationListener.reconnectAndRecover(context)
+    val batteryUnrestricted = remember(revision) { context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName) }
+    LaunchedEffect(authorized, collecting, packages, protectCollection) {
+        app.collectionSupervisor.refresh(allowForegroundStart = true, recover = true)
     }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) {
+            collecting = prefs.collecting; protectCollection = prefs.protectCollection
             revision++; scope.launch { repository.reschedule() }
         } }
         lifecycle.lifecycle.addObserver(observer)
@@ -78,6 +83,10 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
     } }
     fun openSettings(intent: Intent) { runCatching { context.startActivity(intent) }.onFailure { scope.launch { snackbar.showSnackbar("无法打开此设置，请在系统设置中手动开启") } } }
     val notifyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { revision++ }
+    fun requestNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        else openSettings(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+    }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) work {
             val data = repository.export()
@@ -96,10 +105,14 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
             "已读取备份，请确认恢复"
         }
     }
-    val apps = remember { context.packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-        .filter { it.activityInfo.packageName != context.packageName }
-        .map { it.activityInfo.packageName to it.loadLabel(context.packageManager).toString() }
-        .distinctBy { it.first }.sortedBy { it.second } }
+    val apps by produceState<List<Pair<String, String>>?>(null, sourceDialog) {
+        if (sourceDialog && value == null) value = withContext(Dispatchers.IO) {
+            context.packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                .filter { it.activityInfo.packageName != context.packageName }
+                .map { it.activityInfo.packageName to it.loadLabel(context.packageManager).toString() }
+                .distinctBy { it.first }.sortedBy { it.second }
+        }
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { ApiSettingsEntry(repository, onApi) }
         item { SettingsSection("通知接入") {
@@ -126,6 +139,28 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
             }, enabled = authorized && collecting && packages.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text("重新连接并补采通知栏") }
             Text("只补采通知栏中仍保留的文字。相同来源应用、标题与正文在 24 小时内自动去重。", style = MaterialTheme.typography.bodySmall)
         } }
+        item { SettingsSection("持续采集与耗电") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("持续采集保护")
+                    Text("开启采集时显示常驻通知，降低后台被回收的概率。", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(protectCollection, { protectCollection = it; prefs.protectCollection = it })
+            }
+            Text(when {
+                !collecting -> "采集已暂停"
+                !authorized -> "请先开启通知读取权限"
+                packages.isEmpty() -> "请先选择来源应用"
+                !protectCollection -> "保护已关闭，使用系统通知监听"
+                notificationStatus.protectionActive -> "采集保护运行中"
+                else -> "采集保护未运行，请重新打开应用并检查后台设置"
+            }, style = MaterialTheme.typography.bodyMedium)
+            if (!notificationAllowed) OutlinedButton(onClick = { requestNotifications() }) { Text("允许显示采集通知") }
+            Text("消息到达才保存并排队识别；正常连接时不重复扫描通知栏，不持续唤醒屏幕或 CPU。断线后逐步降低重试频率，系统按空闲情况安排兜底检查。", style = MaterialTheme.typography.bodySmall)
+            Text(if (batteryUnrestricted) "电池优化豁免已开启" else "系统可能限制后台运行，可在电池设置中允许忆迹后台运行。", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { openSettings(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }, modifier = Modifier.fillMaxWidth()) { Text("查看后台电池设置") }
+            Text("部分手机还需允许自启动并锁定后台。强行停止、撤销权限或系统清理仍可能中断；已消失的通知无法补采。", style = MaterialTheme.typography.bodySmall)
+        } }
         item { SettingsSection("通知处理记录") {
             Text("记录所选来源通知的处理结果，最多保留 20 条，不包含聊天正文。", style = MaterialTheme.typography.bodySmall)
             if (notificationStatus.records.isEmpty()) Text("尚无记录。开启采集后，请让来源应用收到一条新通知。", style = MaterialTheme.typography.bodyMedium)
@@ -142,10 +177,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
         } }
         item { SettingsSection("事项提醒") {
             Text(if (notificationAllowed) "提醒通知已允许" else "尚未允许提醒通知", color = if (notificationAllowed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            if (!notificationAllowed) OutlinedButton(onClick = {
-                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                else openSettings(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-            }) { Text("允许提醒通知") }
+            if (!notificationAllowed) OutlinedButton(onClick = { requestNotifications() }) { Text("允许提醒通知") }
             Text(if (exactAllowed) "精确提醒已允许" else "当前使用系统普通提醒，可能有延迟", style = MaterialTheme.typography.bodySmall)
             if (!exactAllowed && Build.VERSION.SDK_INT >= 31) OutlinedButton(onClick = { openSettings(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }) { Text("允许精确提醒") }
             Text("新增事项默认提前提醒", fontWeight = FontWeight.Bold)
@@ -167,7 +199,8 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
     if (consent) AlertDialog(onDismissRequest = { consent = false }, title = { Text("允许忆迹接收通知") }, text = { Text("系统通知可能包含私人信息。忆迹只处理你选择的来源；TinyBERT 筛选在手机上运行，原文先保存在本机。另行开启云端识别后，日程候选会发送到你选择的模型服务商。你随时可以暂停采集或撤销系统授权。") },
         confirmButton = { TextButton(onClick = { consent = false; openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("前往系统授权") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("稍后") } })
     if (sourceDialog) AlertDialog(onDismissRequest = { sourceDialog = false }, title = { Text("选择通知来源") }, text = {
-        LazyColumn(Modifier.heightIn(max = 360.dp)) { items(apps, key = { it.first }) { (pkg, label) -> Row(Modifier.fillMaxWidth().clickable {
+        if (apps == null) Text("正在读取应用列表…")
+        else LazyColumn(Modifier.heightIn(max = 360.dp)) { items(apps.orEmpty(), key = { it.first }) { (pkg, label) -> Row(Modifier.fillMaxWidth().clickable {
             packages = if (pkg in packages) packages - pkg else packages + pkg; prefs.packages = packages
         }, verticalAlignment = Alignment.CenterVertically) { Checkbox(pkg in packages, onCheckedChange = { checked -> packages = if (checked) packages + pkg else packages - pkg; prefs.packages = packages }); Text(label) } } }
     }, confirmButton = { TextButton(onClick = { sourceDialog = false }) { Text("完成") } })

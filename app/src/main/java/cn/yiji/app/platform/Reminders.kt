@@ -100,6 +100,9 @@ class RescheduleReceiver : BroadcastReceiver() {
         if (intent.action !in setOf("android.intent.action.BOOT_COMPLETED", "android.intent.action.MY_PACKAGE_REPLACED",
             "android.intent.action.TIME_SET", "android.intent.action.TIMEZONE_CHANGED",
             "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED")) return
+        if (intent.action in setOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED)) {
+            (context.applicationContext as YijiApplication).collectionSupervisor.refresh(allowForegroundStart = true, recover = true)
+        }
         val result = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try { (context.applicationContext as YijiApplication).repository.reschedule() }

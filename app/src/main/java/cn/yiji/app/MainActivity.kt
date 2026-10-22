@@ -22,6 +22,10 @@ class MainActivity : ComponentActivity() {
         setContent { YijiApp(repository, openEvent, sharedText) { openEvent = null; sharedText = null } }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); receiveIntent(intent) }
+    override fun onResume() {
+        super.onResume()
+        (application as YijiApplication).collectionSupervisor.refresh(allowForegroundStart = true, recover = true)
+    }
     private fun receiveIntent(intent: Intent) {
         openEvent = intent.getStringExtra("eventId")
         if (intent.action == Intent.ACTION_SEND && intent.type == "text/plain") sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)

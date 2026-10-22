@@ -1,7 +1,7 @@
 package cn.yiji.app.platform
 
-import android.content.ComponentName
 import android.content.Context
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import cn.yiji.app.YijiApplication
@@ -11,13 +11,17 @@ import java.lang.ref.WeakReference
 class YijiNotificationListener : NotificationListenerService() {
     private val app get() = application as YijiApplication
     private var connected = false
+    private var lastRecoveryAt: Long? = null
+    private var recoveredPackages: Set<String> = emptySet()
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         connected = true
         instance = WeakReference(this)
         app.notificationMonitor.connection(true)
+        app.collectionSupervisor.connected()
         app.notificationMonitor.record("系统", "通知监听已连接")
+        lastRecoveryAt = null
         recoverActiveNotifications()
     }
 
@@ -27,7 +31,7 @@ class YijiNotificationListener : NotificationListenerService() {
     }
 
     private fun enqueue(sbn: StatusBarNotification, recovery: Boolean = false) {
-        if (sbn.packageName == packageName || sbn.packageName !in app.repository.preferences.packages) return
+        if (sbn.packageName == packageName || !app.repository.preferences.accepts(sbn.packageName)) return
         val application = app
         application.notificationScope.launch {
             val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }
@@ -36,8 +40,14 @@ class YijiNotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun recoverActiveNotifications() {
+    private fun recoverActiveNotifications(manual: Boolean = false) {
         if (!connected || !app.repository.preferences.collecting) return
+        val packages = app.repository.preferences.packages
+        val now = SystemClock.elapsedRealtime()
+        val minimumInterval = if (manual) 1_000L else 30_000L
+        if (packages == recoveredPackages && lastRecoveryAt?.let { now - it < minimumInterval } == true) return
+        lastRecoveryAt = now
+        recoveredPackages = packages
         runCatching { activeNotifications.orEmpty() }
             .onSuccess { notifications ->
                 val selected = notifications.filter { it.packageName in app.repository.preferences.packages && it.packageName != packageName }
@@ -49,15 +59,17 @@ class YijiNotificationListener : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         connected = false
+        if (instance?.get() !== this) return
         app.notificationMonitor.connection(false)
         app.notificationMonitor.record("系统", "通知监听已断开，正在请求重新连接")
-        requestConnection(this)
+        app.collectionSupervisor.refresh()
     }
 
     override fun onDestroy() {
         if (instance?.get() === this) {
             instance = null
             app.notificationMonitor.connection(false)
+            app.collectionSupervisor.refresh()
         }
         connected = false
         // Queued work belongs to the application and continues through service recreation.
@@ -67,18 +79,18 @@ class YijiNotificationListener : NotificationListenerService() {
     companion object {
         @Volatile private var instance: WeakReference<YijiNotificationListener>? = null
 
-        /** Call on the main thread. Only request a rebind when the listener is disconnected. */
-        fun reconnectAndRecover(context: Context) {
-            val listener = instance?.get()
-            if (listener?.connected == true) listener.recoverActiveNotifications()
-            else requestConnection(context)
+        fun isConnected(): Boolean = instance?.get()?.connected == true
+
+        internal fun resetRecovery() { instance?.get()?.lastRecoveryAt = null }
+
+        internal fun recover(manual: Boolean = false) {
+            instance?.get()?.recoverActiveNotifications(manual)
         }
 
-        private fun requestConnection(context: Context) {
-            val monitor = (context.applicationContext as YijiApplication).notificationMonitor
-            runCatching { requestRebind(ComponentName(context, YijiNotificationListener::class.java)) }
-                .onSuccess { monitor.record("系统", "已请求重新连接，等待系统响应") }
-                .onFailure { monitor.record("系统", "重新连接请求失败，请在系统设置中重新开启通知读取权限") }
+        /** Manual UI action; automatic recovery is owned by the application supervisor. */
+        fun reconnectAndRecover(context: Context) {
+            (context.applicationContext as YijiApplication).collectionSupervisor.refresh(
+                allowForegroundStart = true, recover = true, manual = true)
         }
     }
 }

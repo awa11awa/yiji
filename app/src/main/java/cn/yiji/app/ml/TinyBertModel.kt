@@ -20,6 +20,9 @@ class TinyBertModel(model: ByteArray, vocabulary: List<String>, metadata: JSONOb
     private val session = OrtSession.SessionOptions().use { options ->
         options.setIntraOpNumThreads(2)
         options.setInterOpNumThreads(1)
+        // Notification inference is intermittent; idle worker threads should sleep, not spin.
+        options.addConfigEntry("session.intra_op.allow_spinning", "0")
+        options.addConfigEntry("session.inter_op.allow_spinning", "0")
         environment.createSession(model, options)
     }
     init {

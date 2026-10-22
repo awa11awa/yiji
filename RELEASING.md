@@ -6,7 +6,7 @@
 
 1. 在 `app/build.gradle.kts` 中更新 `versionName`，并递增 `versionCode`。
 2. 添加或更新 `RELEASE_NOTES_v<版本号>.md`，说明功能、验证结果和升级注意事项。
-3. 将改动提交到 `main`，为对应提交创建 `v<版本号>` 标签并推送。`.github/workflows/release.yml` 按标签自动执行 release 变体测试、Android Lint 和 APK 构建，也可以在 Actions 页面手动运行。标签必须与 versionName 一致。
+3. 将改动提交到 `main`。更新 `app/build.gradle.kts` 会触发 `.github/workflows/release.yml`，执行 release 变体测试、Android Lint 和 APK 构建，并在核验通过后为该提交创建 `v<版本号>` 标签并发布。仍支持推送版本标签或在 Actions 页面手动运行；主动推送的标签必须与 versionName 一致。
 4. 流程从 Repository Secrets 恢复固定签名。只有测试和 Lint 通过、APK 版本与固定签名证书校验通过后，才生成源码包、上传附件并公开 Release。
 5. 发布后检查附件齐全，确认 `SHA256SUMS.txt` 对应本次发布文件。
 

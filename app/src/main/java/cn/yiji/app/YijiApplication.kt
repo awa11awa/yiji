@@ -6,6 +6,7 @@ import cn.yiji.app.data.*
 import cn.yiji.app.platform.ReminderScheduler
 import cn.yiji.app.platform.NotificationMonitor
 import cn.yiji.app.platform.ExtractionWork
+import cn.yiji.app.platform.CollectionSupervisor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +16,7 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
     override val workManagerConfiguration: androidx.work.Configuration
         get() = androidx.work.Configuration.Builder().setMinimumLoggingLevel(android.util.Log.ERROR).build()
     val notificationMonitor by lazy { NotificationMonitor(this) }
+    val collectionSupervisor by lazy { CollectionSupervisor(this) }
     // Reconnecting the listener must not cancel notifications already queued in this process.
     val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val repository: Repository by lazy {
@@ -26,5 +28,6 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
         ReminderScheduler(this).createChannel()
         notificationScope.launch { repository.recoverMisclassifiedNotices() }
         ExtractionWork.schedule(this)
+        collectionSupervisor.refresh()
     }
 }

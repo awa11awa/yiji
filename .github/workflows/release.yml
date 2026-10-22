@@ -2,7 +2,9 @@ name: Build and publish APK
 
 on:
   push:
+    branches: ['main']
     tags: ['v*']
+    paths: ['app/build.gradle.kts']
   workflow_dispatch:
 
 permissions:
