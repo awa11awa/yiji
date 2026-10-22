@@ -46,6 +46,8 @@ class HybridScheduleExtractor(
 ) : ContextualScheduleExtractor {
     override suspend fun extract(input: ExtractionInput): Extraction {
         if (!input.forceCloud) {
+            if (NoticeSafety.isNoise(input.current.body.ifBlank { input.current.title }, input.context.isNotEmpty() || input.candidates.isNotEmpty()))
+                return Extraction(emptyList(), ignored = true, info = "无明确安排含义的消息，原文已保留在已忽略列表", engine = "本地消息分流")
             val result = gate.classify(input.current.body.ifBlank { input.current.title })
             if (!result.candidate && !NoticeSafety.protects(input.current.title, input.current.body)) {
                 if (NoticeSafety.mayBeIncomplete(input.current.body)) return Extraction(emptyList(), needsReview = true,

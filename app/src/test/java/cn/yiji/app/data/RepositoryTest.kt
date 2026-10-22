@@ -57,7 +57,7 @@ class RepositoryTest {
     @Test fun invalidConfirmationDoesNotMutateDatabase() = runBlocking {
         repository.ingest("会议", "会议时间另行通知", "学院通知", receivedAt = reference)
         val suggestion = repository.dao.allSuggestions().single()
-        assertTrue(runCatching { repository.confirm(suggestion.id, suggestion.draft(), "NEW", null, 30) }.isFailure)
+        assertTrue(runCatching { repository.confirm(suggestion.id, suggestion.draft().copy(title = ""), "NEW", null, 30) }.isFailure)
         assertTrue(repository.dao.allEvents().isEmpty()); assertEquals("PENDING", repository.dao.suggestion(suggestion.id)!!.state)
     }
     @Test fun confirmationCannotRunTwice() = runBlocking {

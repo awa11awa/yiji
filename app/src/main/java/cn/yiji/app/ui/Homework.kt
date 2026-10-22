@@ -71,7 +71,7 @@ fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List
         if (showPending && pending.isNotEmpty()) {
             item {
                 Text("待确认作业", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("核对内容和截止时间后保存；缺少时间的作业也会先保留在这里。",
+                Text("核对整份作业及子任务；时间未完整也可以确认保存。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(pending, key = { "pending-${it.id}" }) { suggestion ->
@@ -82,7 +82,7 @@ fun HomeworkScreen(events: List<Event>, suggestions: List<Suggestion>, raw: List
                         Text(suggestion.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(original?.body ?: suggestion.note, maxLines = 3, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodyMedium)
-                        Text(if (suggestion.dueAt == null) "截止时间待补充" else "${formatTime(suggestion.dueAt)} 截止",
+                        Text(draftTime(suggestion.draft()),
                             style = MaterialTheme.typography.labelMedium)
                         Text(typeLabel(suggestion.type), style = MaterialTheme.typography.labelSmall)
                         if (suggestion.issues.isNotBlank()) Text(suggestion.issues,

@@ -54,6 +54,11 @@ object DateTimeResolver {
             normalized.contains("明天") || normalized.contains("明日") -> return reference.plusDays(1)
             normalized.contains("今天") || normalized.contains("今日") -> return reference
         }
+        if (Regex("第[0-9一二三四五六七八九十]+周").containsMatchIn(normalized)) return null
+        if (Regex("(?:本|这)周(?:内|末)").containsMatchIn(normalized)) {
+            issues += "原文只给出本周范围，已保留日期精度"
+            return reference.plusDays((7 - reference.dayOfWeek.value).toLong())
+        }
         Regex("(下下|下|本|这)?(?:周|星期|礼拜)([一二三四五六日天1-7])").find(normalized)?.let {
             val day = it.groupValues[2]
             val wanted = day.toIntOrNull() ?: ("一二三四五六日".indexOf(day.replace("天", "日")) + 1)

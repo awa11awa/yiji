@@ -2,20 +2,14 @@ name: Build and publish APK
 
 on:
   push:
-    branches: [main]
-    paths:
-      - app/build.gradle.kts
-      - app/src/**
-      - model/**
-      - .github/workflows/release.yml
-      - RELEASE_NOTES_*.md
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: yiji-release-${{ github.ref }}
+  group: yiji-release
   cancel-in-progress: false
 
 jobs:
@@ -37,17 +31,20 @@ jobs:
           python3 - <<'PY'
           import json, os, pathlib, re, subprocess
           text = pathlib.Path("app/build.gradle.kts").read_text()
-          match = re.search(r'versionName\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?)"', text)
+          match = re.search(r'versionName\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
           if not match:
               raise SystemExit("Missing or invalid versionName")
           version = match[1]
           tag = "v" + version
+          if os.environ.get("GITHUB_REF_TYPE") == "tag" and os.environ["GITHUB_REF_NAME"] != tag:
+              raise SystemExit("Pushed tag does not match versionName")
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           result = subprocess.run(["gh", "release", "view", tag, "--json", "isDraft"], text=True, capture_output=True)
           if result.returncode and "release not found" not in result.stderr.lower() and "404" not in result.stderr:
               raise SystemExit(result.stderr)
           published = result.returncode == 0 and not json.loads(result.stdout)["isDraft"]
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"version={version}\ntag={tag}\npublished={str(published).lower()}\n")
+              output.write(f"version={version}\ntag={tag}\nsha={sha}\npublished={str(published).lower()}\n")
           print(f"Version: {tag}; already published: {published}")
           PY
 
@@ -102,13 +99,14 @@ jobs:
         shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --console=plain --max-workers=2 testDebugUnitTest lintDebug assembleDebug
+          ./gradlew --no-daemon --console=plain --max-workers=2 testReleaseUnitTest lintRelease assembleRelease
 
       - name: Prepare verified release assets
         if: steps.version.outputs.published != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_SHA: ${{ steps.version.outputs.sha }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -116,8 +114,8 @@ jobs:
           version, tag = os.environ["VERSION"], os.environ["TAG"]
           target = pathlib.Path("release-artifacts")
           target.mkdir(exist_ok=True)
-          apk = target / f"yiji-{tag}-debug.apk"
-          shutil.copyfile("app/build/outputs/apk/debug/app-debug.apk", apk)
+          apk = target / f"yiji-{tag}.apk"
+          shutil.copyfile("app/build/outputs/apk/release/app-release.apk", apk)
           tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
           certificates = subprocess.check_output([str(tools / "apksigner"), "verify", "--print-certs", str(apk)], text=True)
           print(certificates)
@@ -127,9 +125,14 @@ jobs:
           badging = subprocess.check_output([str(tools / "aapt"), "dump", "badging", str(apk)], text=True)
           if f"versionName='{version}'" not in badging:
               raise SystemExit("APK version does not match release tag")
+          version_code = re.search(r'versionCode\s*=\s*(\d+)', pathlib.Path("app/build.gradle.kts").read_text())[1]
+          if "name='cn.yiji.app'" not in badging or f"versionCode='{version_code}'" not in badging:
+              raise SystemExit("APK package or versionCode does not match source")
+          if any(line.startswith("application-debuggable") for line in badging.splitlines()):
+              raise SystemExit("Refusing to publish a debuggable APK")
           source = target / f"yiji-{tag}-source.zip"
-          subprocess.run(["git", "archive", "--format=zip", f"--prefix=yiji-{tag}/", "-o", str(source), os.environ["GITHUB_SHA"]], check=True)
-          reports = list(pathlib.Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
+          subprocess.run(["git", "archive", "--format=zip", f"--prefix=yiji-{tag}/", "-o", str(source), os.environ["SOURCE_SHA"]], check=True)
+          reports = list(pathlib.Path("app/build/test-results/testReleaseUnitTest").glob("TEST-*.xml"))
           if not reports:
               raise SystemExit("Unit test reports are missing")
           suites = [ET.parse(report).getroot() for report in reports]
@@ -137,12 +140,12 @@ jobs:
           failures = sum(int(s.attrib.get("failures", "0")) + int(s.attrib.get("errors", "0")) for s in suites)
           if failures or tests == 0:
               raise SystemExit("Unit tests did not pass")
-          lint = ET.parse("app/build/reports/lint-results-debug.xml").getroot()
+          lint = ET.parse("app/build/reports/lint-results-release.xml").getroot()
           if any(i.attrib["severity"] in ("Error", "Fatal") for i in lint.findall("issue")):
               raise SystemExit("Lint errors found")
           notes_path = pathlib.Path(f"RELEASE_NOTES_{tag}.md")
           notes = notes_path.read_text() if notes_path.exists() else f"# 忆迹 {tag}\n"
-          notes += f"\n\n## 本次发布构建\n\n源码提交：{os.environ['GITHUB_SHA']}。GitHub Actions 验证 {tests} 项测试通过、Lint 无错误，APK 版本及固定签名校验通过。\n\n签名证书 SHA-256：{os.environ['YIJI_SIGNING_CERTIFICATE_SHA256']}。与此前交付的 v2.1.0 APK 使用同一密钥；后续发布沿用该签名。v2.0.0 及更早版本可能需要先备份后重新安装。\n\n本发布包由 CI 独立构建，最终文件校验值以 SHA256SUMS.txt 为准；此包为 Android 开发测试包。\n"
+          notes += f"\n\n## 本次正式发布构建\n\n源码提交：{os.environ['SOURCE_SHA']}。GitHub Actions 验证 {tests} 项 release 变体测试通过、Lint 无错误，APK 版本、固定签名及不可调试标记校验通过。\n\n签名证书 SHA-256：{os.environ['YIJI_SIGNING_CERTIFICATE_SHA256']}。与此前交付的 v2.1.0 及之后版本使用同一密钥。v2.0.0 及更早版本可能需要先备份后重新安装。\n\n本发布包为 release 构建，最终文件校验值以 SHA256SUMS.txt 为准。\n"
           notes_file = target / f"RELEASE_NOTES_{tag}.md"
           notes_file.write_text(notes, encoding="utf-8")
           assets = [apk, source, notes_file]
@@ -154,17 +157,28 @@ jobs:
         if: steps.version.outputs.published != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
+          SOURCE_SHA: ${{ steps.version.outputs.sha }}
         shell: bash
         run: |
           if gh release view "$TAG" --json isDraft >/dev/null 2>&1; then
             gh release upload "$TAG" release-artifacts/* --clobber
             gh release edit "$TAG" --notes-file "release-artifacts/RELEASE_NOTES_$TAG.md"
           else
-            gh release create "$TAG" release-artifacts/* --draft --prerelease \
-              --target "$GITHUB_SHA" --title "忆迹 $TAG（开发测试版）" \
+            gh release create "$TAG" release-artifacts/* --draft \
+              --target "$SOURCE_SHA" --title "忆迹 $TAG（正式版）" \
               --notes-file "release-artifacts/RELEASE_NOTES_$TAG.md"
           fi
-          gh release edit "$TAG" --draft=false --prerelease
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          tag = os.environ["TAG"]
+          def version(value):
+              match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", value)
+              return tuple(map(int, match.groups())) if match else (-1, -1, -1)
+          releases = json.loads(subprocess.check_output(["gh", "release", "list", "--limit", "100", "--json", "tagName,isDraft,isPrerelease"], text=True))
+          newer = any(not r["isDraft"] and not r["isPrerelease"] and version(r["tagName"]) > version(tag) for r in releases)
+          subprocess.run(["gh", "release", "edit", tag, "--draft=false", "--prerelease=false", "--latest=" + str(not newer).lower(),
+              "--title", "忆迹 " + tag + "（正式版）"], check=True)
+          PY
 
       - name: Preserve test reports
         if: always()
@@ -173,8 +187,8 @@ jobs:
           name: verification-${{ github.sha }}
           path: |
             app/build/reports/tests/
-            app/build/reports/lint-results-debug.*
-            app/build/test-results/testDebugUnitTest/
+            app/build/reports/lint-results-release.*
+            app/build/test-results/testReleaseUnitTest/
 
       - name: Remove temporary signing material
         if: always()

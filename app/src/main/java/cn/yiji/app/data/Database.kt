@@ -25,14 +25,19 @@ data class Event(
     val reminderMinutes: Int = 30,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "NULL") val opensAt: Long? = null,
+    @ColumnInfo(defaultValue = "'{}'") val timing: Timing = Timing(),
+    @ColumnInfo(defaultValue = "'[]'") val subtasks: List<Subtask> = emptyList(),
 ) {
-    fun draft() = Draft(title, category, kind, startAt, endAt, dueAt, location, action, note)
+    fun draft() = Draft(title, category, kind, startAt, endAt, dueAt, location, action, note,
+        opensAt = opensAt, timing = timing, subtasks = subtasks)
     fun existing() = ExistingItem(id, draft(), status)
     val anchor: Long? get() = draft().anchor
     fun withDraft(d: Draft, reminder: Int = reminderMinutes) = copy(
         title = d.title, category = d.category, kind = d.kind, startAt = d.startAt,
         endAt = d.endAt, dueAt = d.dueAt, location = d.location, action = d.action,
-        note = d.note, reminderMinutes = reminder, updatedAt = maxOf(System.currentTimeMillis(), updatedAt + 1))
+        note = d.note, reminderMinutes = reminder, updatedAt = maxOf(System.currentTimeMillis(), updatedAt + 1),
+        opensAt = d.opensAt, timing = d.timing, subtasks = d.subtasks)
 }
 
 @Entity(tableName = "raw_messages", indices = [Index("fingerprint")])
@@ -56,8 +61,13 @@ data class Suggestion(
     val startAt: Long? = null, val endAt: Long? = null, val dueAt: Long? = null,
     val location: String = "", val action: String = "", val note: String = "", val issues: String = "",
     val reason: String = "", val state: String = "PENDING", val engine: String = "TinyBERT 离线模型",
+    @ColumnInfo(defaultValue = "NULL") val opensAt: Long? = null,
+    @ColumnInfo(defaultValue = "'{}'") val timing: Timing = Timing(),
+    @ColumnInfo(defaultValue = "'[]'") val subtasks: List<Subtask> = emptyList(),
+    @ColumnInfo(defaultValue = "0") val keepSubtasks: Boolean = false,
 ) {
-    fun draft() = Draft(title, category, kind, startAt, endAt, dueAt, location, action, note, issues.lines().filter { it.isNotBlank() })
+    fun draft() = Draft(title, category, kind, startAt, endAt, dueAt, location, action, note,
+        issues.lines().filter { it.isNotBlank() }, opensAt, timing, subtasks, keepSubtasks)
 }
 
 @Entity(tableName = "sources", primaryKeys = ["eventId", "rawId"], foreignKeys = [
@@ -114,10 +124,21 @@ interface YijiDao {
     @Query("DELETE FROM raw_messages") suspend fun clearRaw()
 }
 
-@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class], version = 2, exportSchema = true)
+@TypeConverters(StructuredFields::class)
+@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class], version = 3, exportSchema = true)
 abstract class YijiDatabase : RoomDatabase() {
     abstract fun dao(): YijiDao
     companion object {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf("events", "suggestions").forEach { table ->
+                    db.execSQL("ALTER TABLE $table ADD COLUMN opensAt INTEGER DEFAULT NULL")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN timing TEXT NOT NULL DEFAULT '{}'")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN subtasks TEXT NOT NULL DEFAULT '[]'")
+                }
+                db.execSQL("ALTER TABLE suggestions ADD COLUMN keepSubtasks INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS message_jobs (rawId TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, forceCloud INTEGER NOT NULL, updatedAt INTEGER NOT NULL, nextAttemptAt INTEGER NOT NULL, candidate INTEGER NOT NULL, PRIMARY KEY(rawId), FOREIGN KEY(rawId) REFERENCES raw_messages(id) ON UPDATE NO ACTION ON DELETE CASCADE)")

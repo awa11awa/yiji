@@ -6,13 +6,15 @@
 
 1. 在 `app/build.gradle.kts` 中更新 `versionName`，并递增 `versionCode`。
 2. 添加或更新 `RELEASE_NOTES_v<版本号>.md`，说明功能、验证结果和升级注意事项。
-3. 将改动提交到 `main`；`.github/workflows/release.yml` 自动执行单元/集成测试、Android Lint 和 APK 构建，也可以在 Actions 页面手动运行。
+3. 将改动提交到 `main`，为对应提交创建 `v<版本号>` 标签并推送。`.github/workflows/release.yml` 按标签自动执行 release 变体测试、Android Lint 和 APK 构建，也可以在 Actions 页面手动运行。标签必须与 versionName 一致。
 4. 流程从 Repository Secrets 恢复固定签名。只有测试和 Lint 通过、APK 版本与固定签名证书校验通过后，才生成源码包、上传附件并公开 Release。
 5. 发布后检查附件齐全，确认 `SHA256SUMS.txt` 对应本次发布文件。
 
 已发布的同版本 Release 不会被自动覆盖。版本未递增时，后续提交不会替换旧安装包。构建或上传失败时，可在 GitHub Actions 页面重跑该版本流程；已创建的草稿会补齐附件后再公开。
 
-当前交付 `debug.apk`，Release 标记为开发测试版。固定签名用于保证后续覆盖升级，不表示该包已成为上架用的生产正式版。
+从 v2.1.2/v2.1.3 的此次正式发布起，交付 `yiji-v<版本号>.apk`，使用 release 构建并校验不可调试标记；GitHub Release 不再标为预发布。固定签名保持不变，debug 与 release 构建使用同一密钥，支持覆盖升级。测试和实机验证的具体边界仍见各版本验证记录。
+
+CI 使用 `testReleaseUnitTest lintRelease assembleRelease`，核验签名、包名、versionName、versionCode 与不可调试标记。发布较旧版本时不会将其设为比已发布的新版本更优先的 Latest。私有密钥仍只从加密 Repository Secrets 恢复。
 
 ## 固定签名
 

@@ -11,16 +11,21 @@ data class Draft(
     val action: String = "",
     val note: String = "",
     val issues: List<String> = emptyList(),
+    val opensAt: Long? = null,
+    val timing: Timing = Timing(),
+    val subtasks: List<Subtask> = emptyList(),
+    val keepSubtasks: Boolean = false,
 ) {
-    val anchor: Long? get() = if (kind == "DEADLINE") dueAt else startAt
+    val anchor: Long? get() = if (kind == "DEADLINE") dueAt ?: opensAt ?: subtasks.filter { !it.done }.mapNotNull { it.dueAt }.minOrNull() else startAt
     fun validationError(): String? = when {
         title.isBlank() -> "请填写事项标题"
         title.length > 120 -> "标题最多 120 个字"
         kind !in setOf("SCHEDULE", "DEADLINE") -> "事项类型无效"
-        kind == "DEADLINE" && dueAt == null -> "请补充截止日期和时间"
-        kind == "SCHEDULE" && startAt == null -> "请补充开始日期和时间"
-        kind == "SCHEDULE" && endAt == null -> "请补充结束日期和时间"
-        kind == "SCHEDULE" && endAt!! <= startAt!! -> "结束时间必须晚于开始时间"
+        timing.fields().any { !it.valid() } -> "时间依据未通过校验，请核对或清空对应时间"
+        kind == "SCHEDULE" && startAt != null && endAt != null && endAt <= startAt -> "结束时间必须晚于开始时间"
+        opensAt != null && dueAt != null && dueAt < opensAt -> "报名截止不能早于开放时间"
+        subtasks.size > 40 || subtasks.any { it.title.isBlank() || it.title.length > 300 || !it.due.valid() } -> "请核对子任务内容和时间依据"
+        subtasks.map { it.id }.distinct().size != subtasks.size -> "子任务标识重复"
         else -> null
     }
 }

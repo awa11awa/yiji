@@ -19,7 +19,7 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
     val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val repository: Repository by lazy {
         Repository(Room.databaseBuilder(this, YijiDatabase::class.java, "yiji.db")
-            .addMigrations(YijiDatabase.MIGRATION_1_2).build(), Preferences(this), ReminderScheduler(this))
+            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3).build(), Preferences(this), ReminderScheduler(this))
     }
     override fun onCreate() {
         super.onCreate()

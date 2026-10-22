@@ -12,17 +12,19 @@ object BackupCodec {
         put("id", e.id); put("title", e.title); put("category", e.category); put("kind", e.kind)
         put("startAt", e.startAt ?: JSONObject.NULL); put("endAt", e.endAt ?: JSONObject.NULL); put("dueAt", e.dueAt ?: JSONObject.NULL)
         put("location", e.location); put("action", e.action); put("note", e.note); put("status", e.status)
+        put("opensAt", e.opensAt ?: JSONObject.NULL); put("timing", JSONObject(StructuredFields.timingJson(e.timing))); put("subtasks", JSONArray(StructuredFields.subtasksJson(e.subtasks)))
         put("reminderMinutes", e.reminderMinutes); put("createdAt", e.createdAt); put("updatedAt", e.updatedAt)
     }
     private fun event(o: JSONObject) = Event(o.getString("id"), o.getString("title"), o.getString("category"), o.getString("kind"),
         o.nullableLong("startAt"), o.nullableLong("endAt"), o.nullableLong("dueAt"), o.getString("location"), o.getString("action"),
-        o.getString("note"), o.getString("status"), o.getInt("reminderMinutes"), o.getLong("createdAt"), o.getLong("updatedAt"))
+        o.getString("note"), o.getString("status"), o.getInt("reminderMinutes"), o.getLong("createdAt"), o.getLong("updatedAt"), o.nullableLong("opensAt"),
+        StructuredFields.timing(o.optJSONObject("timing")?.toString() ?: "{}"), StructuredFields.subtasks(o.optJSONArray("subtasks")?.toString() ?: "[]"))
     fun rawJson(r: RawMessage): JSONObject = JSONObject().apply {
         put("id", r.id); put("title", r.title); put("body", r.body); put("source", r.source); put("packageName", r.packageName)
         put("receivedAt", r.receivedAt); put("state", r.state); put("fingerprint", r.fingerprint); put("info", r.info)
     }
     fun encode(b: Backup): String = JSONObject().apply {
-        put("format", "cn.yiji.backup"); put("version", 1); put("exportedAt", System.currentTimeMillis())
+        put("format", "cn.yiji.backup"); put("version", 2); put("exportedAt", System.currentTimeMillis())
         put("events", JSONArray(b.events.map(::eventJson)))
         put("raw", JSONArray(b.raw.map(::rawJson)))
         put("suggestions", JSONArray(b.suggestions.map { s -> JSONObject().apply {
@@ -30,6 +32,7 @@ object BackupCodec {
             put("title", s.title); put("category", s.category); put("kind", s.kind)
             put("startAt", s.startAt ?: JSONObject.NULL); put("endAt", s.endAt ?: JSONObject.NULL); put("dueAt", s.dueAt ?: JSONObject.NULL)
             put("location", s.location); put("action", s.action); put("note", s.note); put("issues", s.issues)
+            put("keepSubtasks", s.keepSubtasks); put("opensAt", s.opensAt ?: JSONObject.NULL); put("timing", JSONObject(StructuredFields.timingJson(s.timing))); put("subtasks", JSONArray(StructuredFields.subtasksJson(s.subtasks)))
             put("reason", s.reason); put("state", s.state); put("engine", s.engine)
         } }))
         put("links", JSONArray(b.links.map { JSONObject().put("eventId", it.eventId).put("rawId", it.rawId) }))
@@ -48,13 +51,14 @@ object BackupCodec {
     fun decode(text: String): Backup {
         require(text.toByteArray().size <= 10 * 1024 * 1024) { "备份最大为 10 MB" }
         val root = JSONObject(text)
-        require(root.getString("format") == "cn.yiji.backup" && root.getInt("version") == 1) { "不是支持的忆迹备份" }
+        require(root.getString("format") == "cn.yiji.backup" && root.getInt("version") in 1..2) { "不是支持的忆迹备份" }
         val events = rows(root, "events", ::event)
         val raw = rows(root, "raw") { o -> RawMessage(o.getString("id"), o.getString("title"), o.getString("body"), o.getString("source"),
             o.getString("packageName"), o.getLong("receivedAt"), o.getString("state"), o.getString("fingerprint"), o.getString("info")) }
         val suggestions = rows(root, "suggestions") { o -> Suggestion(o.getString("id"), o.getString("rawId"), o.getString("type"), o.nullableString("targetId"),
             o.getString("title"), o.getString("category"), o.getString("kind"), o.nullableLong("startAt"), o.nullableLong("endAt"), o.nullableLong("dueAt"),
-            o.getString("location"), o.getString("action"), o.getString("note"), o.getString("issues"), o.getString("reason"), o.getString("state"), o.getString("engine")) }
+            o.getString("location"), o.getString("action"), o.getString("note"), o.getString("issues"), o.getString("reason"), o.getString("state"), o.getString("engine"), o.nullableLong("opensAt"),
+            StructuredFields.timing(o.optJSONObject("timing")?.toString() ?: "{}"), StructuredFields.subtasks(o.optJSONArray("subtasks")?.toString() ?: "[]"), o.optBoolean("keepSubtasks")) }
         val links = rows(root, "links") { SourceLink(it.getString("eventId"), it.getString("rawId")) }
         val history = rows(root, "history") { History(it.getString("id"), it.getString("eventId"), it.getLong("changedAt"),
             it.getString("action"), it.getString("before"), it.getString("after")) }

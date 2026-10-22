@@ -56,7 +56,7 @@ fun PasteScreen(initial: String, initialTitle: String = "", submitLabel: String 
             Triple("竞赛培训", "因场地维修，竞赛培训取消，请同学们知悉。", "学院通知"),
         )
         examples.forEach { (name, text, label) -> OutlinedButton(onClick = { title = name; body = text; source = label; error = null }, modifier = Modifier.fillMaxWidth()) { Text(if (text.contains("延期")) "$name · 改期" else if (text.contains("取消")) "$name · 取消" else name) } }
-        Text("模型会将日程与截止时间拆成多条草稿，请在通知箱逐项核对。", style = MaterialTheme.typography.bodySmall)
+        Text("同一份作业可包含多个子任务；报名开放、截止和活动时间分别核对。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -66,9 +66,7 @@ fun EventEditor(key: String, initial: Draft, initialReminder: Int, suggestion: S
     var type by rememberSaveable(key) { mutableStateOf(suggestion?.type ?: "NEW") }
     var targetId by rememberSaveable(key) { mutableStateOf(suggestion?.targetId) }
     val target = events.find { it.id == targetId && it.status == "ACTIVE" }
-    fun filled(d: Draft, t: Event?): Draft = if (t == null || type == "NEW") d else d.copy(
-        startAt = d.startAt ?: t.startAt, endAt = d.endAt ?: t.endAt, dueAt = d.dueAt ?: t.dueAt,
-        location = d.location.ifBlank { t.location }, action = d.action.ifBlank { t.action }, category = d.category.let { if (it == "其他") t.category else it })
+    fun filled(d: Draft, t: Event?): Draft = if (t == null || type == "NEW") d else d.resolvedAgainst(t.draft())
     val seed = filled(initial, target)
     var title by rememberSaveable(key) { mutableStateOf(seed.title) }
     var category by rememberSaveable(key) { mutableStateOf(seed.category) }
@@ -76,6 +74,14 @@ fun EventEditor(key: String, initial: Draft, initialReminder: Int, suggestion: S
     var start by rememberSaveable(key) { mutableStateOf(seed.startAt) }
     var end by rememberSaveable(key) { mutableStateOf(seed.endAt) }
     var due by rememberSaveable(key) { mutableStateOf(seed.dueAt) }
+    var opens by rememberSaveable(key) { mutableStateOf(seed.opensAt) }
+    var timingJson by rememberSaveable(key) { mutableStateOf(StructuredFields.timingJson(seed.timing)) }
+    var tasksJson by rememberSaveable(key) { mutableStateOf(StructuredFields.subtasksJson(seed.subtasks)) }
+    val timing = StructuredFields.timing(timingJson)
+    val tasks = StructuredFields.subtasks(tasksJson)
+    var keepTasks by rememberSaveable(key) { mutableStateOf(seed.keepSubtasks) }
+    fun setTiming(value: Timing) { timingJson = StructuredFields.timingJson(value) }
+    fun setTasks(value: List<Subtask>) { tasksJson = StructuredFields.subtasksJson(value); keepTasks = false }
     var location by rememberSaveable(key) { mutableStateOf(seed.location) }
     var action by rememberSaveable(key) { mutableStateOf(seed.action) }
     var note by rememberSaveable(key) { mutableStateOf(seed.note) }
@@ -86,7 +92,8 @@ fun EventEditor(key: String, initial: Draft, initialReminder: Int, suggestion: S
     val scope = rememberCoroutineScope()
     val targetRevision = remember(key, targetId) { target?.updatedAt }
     val draft = Draft(title.trim(), category, kind, if (kind == "SCHEDULE") start else null,
-        if (kind == "SCHEDULE") end else null, if (kind == "DEADLINE") due else null, location.trim(), action.trim(), note.trim())
+        if (kind == "SCHEDULE") end else null, if (kind == "DEADLINE") due else null, location.trim(), action.trim(), note.trim(),
+        opensAt = opens, timing = timing, subtasks = tasks, keepSubtasks = keepTasks)
     val proposedConflicts = remember(draft, events, type, targetId) {
         if (type in setOf("MERGE", "CANCEL")) emptyList() else
             ConflictDetector.detect(events.filter { it.id != (if (suggestion == null && key != "new") key else if (type != "NEW") targetId else null) }.map { it.existing() } + ExistingItem("draft", draft))
@@ -112,7 +119,8 @@ fun EventEditor(key: String, initial: Draft, initialReminder: Int, suggestion: S
                         events.filter { it.status == "ACTIVE" }.forEach { e -> DropdownMenuItem(text = { Text("${e.title}\n${eventTime(e)}") }, onClick = {
                             targetId = e.id; targetMenu = false
                             val merged = filled(initial, e)
-                            start = merged.startAt; end = merged.endAt; due = merged.dueAt; kind = e.kind
+                            start = merged.startAt; end = merged.endAt; due = merged.dueAt; opens = merged.opensAt; kind = e.kind
+                            setTiming(merged.timing); setTasks(merged.subtasks); keepTasks = merged.keepSubtasks
                             location = merged.location; action = merged.action; category = merged.category
                         }) }
                     }
@@ -125,12 +133,36 @@ fun EventEditor(key: String, initial: Draft, initialReminder: Int, suggestion: S
             OutlinedTextField(title, { title = it.take(120) }, Modifier.fillMaxWidth(), label = { Text("事项标题") }, singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilterChip(kind == "SCHEDULE", { kind = "SCHEDULE" }, label = { Text("日程 · 占用时间") })
-                FilterChip(kind == "DEADLINE", { kind = "DEADLINE" }, label = { Text("任务 · 截止时间") })
+                FilterChip(kind == "DEADLINE", { kind = "DEADLINE" }, label = { Text("任务 · 可设截止") })
             }
             if (kind == "SCHEDULE") {
-                DateTimeField("开始时间", start) { start = it }
-                DateTimeField("结束时间", end, start) { end = it }
-            } else DateTimeField("截止时间", due) { due = it }
+                DateTimeField("开始时间", start, info = timing.start,
+                    onClear = { start = null; setTiming(timing.copy(start = TimeField.cleared())) },
+                    onPending = { start = null; setTiming(timing.copy(start = TimeField.pending())) },
+                    onDateOnly = { start = null; setTiming(timing.copy(start = TimeField("SET", "DATE", date = it.toString()))) }) {
+                    start = it; setTiming(timing.copy(start = TimeField.exact()))
+                }
+                DateTimeField("结束时间（选填）", end, start, timing.end,
+                    onClear = { end = null; setTiming(timing.copy(end = TimeField.cleared())) },
+                    onPending = { end = null; setTiming(timing.copy(end = TimeField.pending())) },
+                    onDateOnly = { end = null; setTiming(timing.copy(end = TimeField("SET", "DATE", date = it.toString()))) }) {
+                    end = it; setTiming(timing.copy(end = TimeField.exact()))
+                }
+                if (end == null) Text("结束时间未提供，可以保存；时长未知，冲突检查不完整。", style = MaterialTheme.typography.bodySmall)
+            } else {
+                if (category == "报名" || opens != null || timing.open.precision != "NONE") DateTimeField("报名开放时间", opens, info = timing.open,
+                    onClear = { opens = null; setTiming(timing.copy(open = TimeField.cleared())) },
+                    onPending = { opens = null; setTiming(timing.copy(open = TimeField.pending())) },
+                    onDateOnly = { opens = null; setTiming(timing.copy(open = TimeField("SET", "DATE", date = it.toString()))) }) {
+                    opens = it; setTiming(timing.copy(open = TimeField.exact()))
+                }
+                DateTimeField("截止时间（选填）", due, info = timing.due,
+                    onClear = { due = null; setTiming(timing.copy(due = TimeField.cleared())) },
+                    onPending = { due = null; setTiming(timing.copy(due = TimeField.pending())) },
+                    onDateOnly = { due = null; setTiming(timing.copy(due = TimeField("SET", "DATE", date = it.toString()))) }) {
+                    due = it; setTiming(timing.copy(due = TimeField.exact()))
+                }
+            }
             Text("类别", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("作业", "报名", "会议", "课程", "活动", "考试", "材料", "其他").forEach { value -> FilterChip(category == value, { category = value }, label = { Text(value) }) }
@@ -138,8 +170,30 @@ fun EventEditor(key: String, initial: Draft, initialReminder: Int, suggestion: S
             OutlinedTextField(location, { location = it.take(200) }, Modifier.fillMaxWidth(), label = { Text("地点（选填）") })
             OutlinedTextField(action, { action = it.take(2000) }, Modifier.fillMaxWidth(), label = { Text("需要完成的动作") }, minLines = 2)
             OutlinedTextField(note, { note = it.take(16000) }, Modifier.fillMaxWidth(), label = { Text("备注") }, minLines = 2)
+            if (tasks.isNotEmpty()) Text("子任务 · ${tasks.count { it.done }}/${tasks.size} 已完成", fontWeight = FontWeight.Bold)
+            tasks.forEach { task ->
+                Card {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(task.title, { text -> setTasks(tasks.map { if (it.id == task.id) it.copy(title = text.take(300)) else it }) },
+                            Modifier.fillMaxWidth(), label = { Text("子任务内容") })
+                        Row {
+                            Checkbox(task.optional, { checked -> setTasks(tasks.map { if (it.id == task.id) it.copy(optional = checked) else it }) })
+                            Text("选做", Modifier.padding(top = 12.dp))
+                        }
+                        DateTimeField("此项截止", task.dueAt, info = task.due,
+                            onClear = { setTasks(tasks.map { if (it.id == task.id) it.copy(dueAt = null, due = TimeField.cleared()) else it }) },
+                            onPending = { setTasks(tasks.map { if (it.id == task.id) it.copy(dueAt = null, due = TimeField.pending()) else it }) },
+                            onDateOnly = { date -> setTasks(tasks.map { if (it.id == task.id) it.copy(dueAt = null, due = TimeField("SET", "DATE", date = date.toString())) else it }) }) { at ->
+                            setTasks(tasks.map { if (it.id == task.id) it.copy(dueAt = at, due = TimeField.exact()) else it })
+                        }
+                        TextButton(onClick = { setTasks(tasks.filter { it.id != task.id }) }) { Text("移除此子任务") }
+                    }
+                }
+            }
+            if (kind == "DEADLINE" && tasks.size < 40) TextButton(onClick = { setTasks(tasks + Subtask("新子任务")) }) { Text("添加子任务") }
             Text("提前提醒", style = MaterialTheme.typography.labelLarge)
             ReminderChips(reminder) { reminder = it }
+            if (draft.reminderPoints().isEmpty()) Text("可先保存；补全具体时刻后才能安排时间提醒。", style = MaterialTheme.typography.bodySmall)
             if (draft.anchor != null && draft.anchor!! <= System.currentTimeMillis()) Text("这个时间已过去，保存后不会安排新的提醒，请核对。", color = MaterialTheme.colorScheme.error)
             if (proposedConflicts.isNotEmpty()) Text("与 ${proposedConflicts.size} 个已有日程重叠。可先保存，再在冲突详情中调整。", color = MaterialTheme.colorScheme.error)
         }
@@ -171,16 +225,27 @@ fun ReminderChips(value: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-fun DateTimeField(label: String, value: Long?, fallback: Long? = null, onChange: (Long) -> Unit) {
+fun DateTimeField(label: String, value: Long?, fallback: Long? = null, info: TimeField = TimeField(),
+    onClear: (() -> Unit)? = null, onPending: (() -> Unit)? = null, onDateOnly: ((LocalDate) -> Unit)? = null, onChange: (Long) -> Unit) {
     val context = LocalContext.current
     val initial = Instant.ofEpochMilli(value ?: fallback ?: System.currentTimeMillis()).atZone(ZoneId.systemDefault())
-    OutlinedButton(onClick = {
-        DatePickerDialog(context, { _, year, month, day ->
-            TimePickerDialog(context, { _, hour, minute ->
-                onChange(LocalDateTime.of(year, month + 1, day, hour, minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
-            }, initial.hour, initial.minute, true).show()
-        }, initial.year, initial.monthValue - 1, initial.dayOfMonth).show()
-    }, modifier = Modifier.fillMaxWidth()) {
-        Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(10.dp)); Text("$label：${formatTime(value)}")
+    Column {
+        OutlinedButton(onClick = {
+            DatePickerDialog(context, { _, year, month, day ->
+                TimePickerDialog(context, { _, hour, minute ->
+                    onChange(LocalDateTime.of(year, month + 1, day, hour, minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+                }, initial.hour, initial.minute, true).show()
+            }, initial.year, initial.monthValue - 1, initial.dayOfMonth).show()
+        }, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(10.dp)); Text("$label：${fieldTime(value, info)}")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (onDateOnly != null) TextButton(onClick = {
+                val date = runCatching { LocalDate.parse(info.date) }.getOrDefault(initial.toLocalDate())
+                DatePickerDialog(context, { _, y, m, d -> onDateOnly(LocalDate.of(y, m + 1, d)) }, date.year, date.monthValue - 1, date.dayOfMonth).show()
+            }) { Text("只设日期") }
+            if (onPending != null) TextButton(onClick = onPending) { Text("待定") }
+            if (onClear != null) TextButton(onClick = onClear) { Text("清空") }
+        }
     }
 }

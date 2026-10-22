@@ -1,0 +1,275 @@
+{
+  "version": "2.1.2",
+  "task": "binary_message_routing",
+  "seed": 20261022,
+  "source": "huawei-noah/TinyBERT_4L_zh",
+  "revision": "152bf15d86715b41dd89c1e03cf5664963d9b005",
+  "real_training_rows": 0,
+  "warning": "Synthetic holdout only; this does not establish real-world accuracy. User-provided notices were not used for training.",
+  "split": "Sentence templates disjoint by split; shared vocabulary and random-noise generator; exact texts globally deduplicated. Threshold chosen on validation only.",
+  "sizes": {
+    "train": 9000,
+    "valid": 1600,
+    "test": 1600
+  },
+  "data_sha256": {
+    "train": "562703a67a00eba4c6efa8622959f3c91c69349b2343fbe666d850cfa6624bec",
+    "valid": "30d1e011ae16326d652293caa6e5fafa2a3c3bcc7e32965a1c2690b88b1beb6c",
+    "test": "2f704f71ef3df32e38b36aab6ec90222b0a132930d381b4c524fd5409057ed59"
+  },
+  "baseline_sha256": "1787ba006ccbb73289267499a9f6b8ecda22594a02497782d1c497430f7392de",
+  "baseline_int8_test": {
+    "schedule_precision": 0.7291857273559011,
+    "schedule_recall": 0.99625,
+    "accuracy": 0.813125,
+    "tp": 797,
+    "fp": 296,
+    "fn": 3,
+    "rows": 1600
+  },
+  "torch_version": "2.14.1+cpu",
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 0.2544333505715039,
+      "threshold": 0.985028,
+      "validation": {
+        "schedule_precision": 0.9017142857142857,
+        "schedule_recall": 0.98625,
+        "accuracy": 0.939375,
+        "tp": 789,
+        "fp": 86,
+        "fn": 11,
+        "rows": 1600
+      },
+      "seconds": 63.0
+    },
+    {
+      "epoch": 2,
+      "loss": 0.05949416661516149,
+      "threshold": 0.987024,
+      "validation": {
+        "schedule_precision": 0.7983789260385005,
+        "schedule_recall": 0.985,
+        "accuracy": 0.868125,
+        "tp": 788,
+        "fp": 199,
+        "fn": 12,
+        "rows": 1600
+      },
+      "seconds": 124.3
+    },
+    {
+      "epoch": 3,
+      "loss": 0.057276738781138516,
+      "threshold": 0.8532919999999999,
+      "validation": {
+        "schedule_precision": 0.9130938586326767,
+        "schedule_recall": 0.985,
+        "accuracy": 0.945625,
+        "tp": 788,
+        "fp": 75,
+        "fn": 12,
+        "rows": 1600
+      },
+      "seconds": 183.4
+    },
+    {
+      "epoch": 4,
+      "loss": 0.056595707166913554,
+      "threshold": 0.5,
+      "validation": {
+        "schedule_precision": 0.9206534422403734,
+        "schedule_recall": 0.98625,
+        "accuracy": 0.950625,
+        "tp": 789,
+        "fp": 68,
+        "fn": 11,
+        "rows": 1600
+      },
+      "seconds": 246.4
+    },
+    {
+      "epoch": 5,
+      "loss": 0.056474417883982046,
+      "threshold": 0.561876,
+      "validation": {
+        "schedule_precision": 0.9194865810968494,
+        "schedule_recall": 0.985,
+        "accuracy": 0.949375,
+        "tp": 788,
+        "fp": 69,
+        "fn": 12,
+        "rows": 1600
+      },
+      "seconds": 306.6
+    },
+    {
+      "epoch": 6,
+      "loss": 0.056438839974555566,
+      "threshold": 0.707584,
+      "validation": {
+        "schedule_precision": 0.9162790697674419,
+        "schedule_recall": 0.985,
+        "accuracy": 0.9475,
+        "tp": 788,
+        "fp": 72,
+        "fn": 12,
+        "rows": 1600
+      },
+      "seconds": 365.4
+    },
+    {
+      "epoch": 7,
+      "loss": 0.05641163712539149,
+      "threshold": 0.875248,
+      "validation": {
+        "schedule_precision": 0.9153132250580046,
+        "schedule_recall": 0.98625,
+        "accuracy": 0.9475,
+        "tp": 789,
+        "fp": 73,
+        "fn": 11,
+        "rows": 1600
+      },
+      "seconds": 427.4
+    }
+  ],
+  "best_epoch": 4,
+  "chat_ignore_threshold": 0.5,
+  "int8_test": {
+    "schedule_precision": 0.9924812030075187,
+    "schedule_recall": 0.99,
+    "accuracy": 0.99125,
+    "tp": 792,
+    "fp": 6,
+    "fn": 8,
+    "rows": 1600
+  },
+  "model_sha256": "2bdb753960a8e091aa6d773a472018b1e9223dc2e6d06e8ea1401b20d08258c1",
+  "bytes": 11637337,
+  "seconds": 432.5,
+  "diagnostic_examples": [
+    {
+      "text": "123",
+      "label": 0,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.9669501781463623
+      },
+      "new": {
+        "candidate": false,
+        "schedule_score": 0.01014255452901125
+      }
+    },
+    {
+      "text": "000000",
+      "label": 0,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.7624862194061279
+      },
+      "new": {
+        "candidate": false,
+        "schedule_score": 0.006655743345618248
+      }
+    },
+    {
+      "text": "20261019",
+      "label": 0,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.16241133213043213
+      },
+      "new": {
+        "candidate": false,
+        "schedule_score": 0.009819206781685352
+      }
+    },
+    {
+      "text": "收到，谢谢。",
+      "label": 0,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.949928343296051
+      },
+      "new": {
+        "candidate": false,
+        "schedule_score": 0.010022220201790333
+      }
+    },
+    {
+      "text": "作业写完了，太开心了。",
+      "label": 0,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.9572107195854187
+      },
+      "new": {
+        "candidate": false,
+        "schedule_score": 0.006268511991947889
+      }
+    },
+    {
+      "text": "。。。。。。",
+      "label": 0,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.008195077069103718
+      },
+      "new": {
+        "candidate": false,
+        "schedule_score": 0.008888847194612026
+      }
+    },
+    {
+      "text": "15:30",
+      "label": 1,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.999718964099884
+      },
+      "new": {
+        "candidate": true,
+        "schedule_score": 0.6809297800064087
+      }
+    },
+    {
+      "text": "改到周五，地点不变",
+      "label": 1,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.9998996257781982
+      },
+      "new": {
+        "candidate": true,
+        "schedule_score": 0.9920931458473206
+      }
+    },
+    {
+      "text": "原定体测调整，具体方案另行通知",
+      "label": 1,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.9999363422393799
+      },
+      "new": {
+        "candidate": true,
+        "schedule_score": 0.990570068359375
+      }
+    },
+    {
+      "text": "关于开展专题讲坛的通知，各位同学：具体安排待公布",
+      "label": 1,
+      "old": {
+        "candidate": true,
+        "schedule_score": 0.999919056892395
+      },
+      "new": {
+        "candidate": true,
+        "schedule_score": 0.9907482266426086
+      }
+    }
+  ],
+  "accepted": true
+}

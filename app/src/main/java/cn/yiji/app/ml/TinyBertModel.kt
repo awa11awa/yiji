@@ -25,7 +25,7 @@ class TinyBertModel(model: ByteArray, vocabulary: List<String>, metadata: JSONOb
     init {
         require(metadata.getString("task") == "binary_gate")
         require(metadata.getJSONArray("labels").getString(0) == "CHAT" && metadata.getJSONArray("labels").getString(1) == "SCHEDULE")
-        require(maxLength in 16..512 && stride in 1 until maxLength - 2 && ignoreThreshold in .8..1.0)
+        require(maxLength in 16..512 && stride in 1 until maxLength - 2 && ignoreThreshold in .5..1.0)
     }
     @Synchronized fun predict(text: String): GatePrediction {
         val pieces = tokenizer.tokenize(text)
@@ -53,6 +53,19 @@ class TinyBertModel(model: ByteArray, vocabulary: List<String>, metadata: JSONOb
             }
             if (last == pieces.size) break
             first = last - stride
+        }
+        // Mean pooling can dilute a short notice among hundreds of unrelated tokens.
+        // Keep the whole-message windows, then examine unique complete sentences when they reject a long message.
+        if (pieces.size > maxLength && 1.0 - probability >= ignoreThreshold) {
+            val sentences = text.split(Regex("(?<=[。！？!?；;])|\\n+"))
+                .map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            for (sentence in sentences) {
+                val count = tokenizer.tokenize(sentence).size
+                if (count in 4 until maxLength - 1) {
+                    probability = maxOf(probability, predict(sentence).scheduleProbability)
+                    if (1.0 - probability < ignoreThreshold) break
+                }
+            }
         }
         return GatePrediction(1.0 - probability < ignoreThreshold, probability, probability in (1.0 - ignoreThreshold)..0.7)
     }

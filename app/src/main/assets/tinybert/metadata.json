@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.2",
   "task": "binary_gate",
   "labels": [
     "CHAT",
@@ -7,8 +7,8 @@
   ],
   "max_length": 384,
   "stride": 96,
-  "chat_ignore_threshold": 0.995,
-  "model_sha256": "1787ba006ccbb73289267499a9f6b8ecda22594a02497782d1c497430f7392de",
+  "chat_ignore_threshold": 0.5,
+  "model_sha256": "2bdb753960a8e091aa6d773a472018b1e9223dc2e6d06e8ea1401b20d08258c1",
   "base_model": "huawei-noah/TinyBERT_4L_zh",
   "base_revision": "152bf15d86715b41dd89c1e03cf5664963d9b005"
 }

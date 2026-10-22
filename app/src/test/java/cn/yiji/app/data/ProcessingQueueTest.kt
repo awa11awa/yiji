@@ -133,7 +133,7 @@ class ProcessingQueueTest {
         val id = repository.ingest("讲坛通知", "学院将举办数智创业大讲坛，具体时间另行通知", "微信")
         repository.processQueued()
         assertEquals("PENDING", repository.dao.raw(id)!!.state)
-        assertEquals("DONE", repository.dao.job(id)!!.state)
+        assertEquals("REVIEW", repository.dao.job(id)!!.state)
         assertTrue(repository.dao.allSuggestions().isEmpty()); assertEquals(1, calls)
     }
 

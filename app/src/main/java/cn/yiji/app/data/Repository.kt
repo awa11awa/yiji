@@ -112,12 +112,13 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
                     title = draft.title, category = draft.category, kind = draft.kind, startAt = draft.startAt,
                     endAt = draft.endAt, dueAt = draft.dueAt, location = draft.location, action = draft.action,
                     note = draft.note, issues = draft.issues.joinToString("\n"),
-                    reason = if (target != null) "模型关联到已有事项，请核对后确认" else match.reason, engine = extraction.engine)
+                    reason = if (target != null) "模型关联到已有事项，请核对后确认" else match.reason, engine = extraction.engine,
+                    opensAt = draft.opensAt, timing = draft.timing, subtasks = draft.subtasks, keepSubtasks = draft.keepSubtasks)
             }
             database.withTransaction {
                 dao.putRaw(current.copy(state = if (extraction.ignored) "IGNORED" else "PENDING", info = extraction.info))
                 drafts.forEach { dao.putSuggestion(it) }
-                dao.putJob((dao.job(rawId) ?: job).copy(state = "DONE", updatedAt = System.currentTimeMillis()))
+                dao.putJob((dao.job(rawId) ?: job).copy(state = if (extraction.needsReview) "REVIEW" else "DONE", updatedAt = System.currentTimeMillis()))
             }
         }
     }
@@ -230,10 +231,11 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
                 require(target.status == "ACTIVE") { "关联事项已完成或取消，请选择其他事项" }
                 if (expectedTargetUpdatedAt != null) require(target.updatedAt == expectedTargetUpdatedAt) { "关联事项已被修改，请重新打开确认页" }
             }
-            if (type in setOf("NEW", "UPDATE")) draft.validationError()?.let { error(it) }
+            val resolved = if (type == "UPDATE") draft.resolvedAgainst(target?.draft()) else draft
+            if (type in setOf("NEW", "UPDATE")) resolved.validationError()?.let { error(it) }
             val event = when (type) {
-                "NEW" -> Event(title = draft.title, category = draft.category, kind = draft.kind).withDraft(draft, reminder)
-                "UPDATE" -> target!!.withDraft(draft, reminder)
+                "NEW" -> Event(title = resolved.title, category = resolved.category, kind = resolved.kind).withDraft(resolved, reminder)
+                "UPDATE" -> target!!.withDraft(resolved, reminder)
                 "CANCEL" -> target!!.copy(status = "CANCELLED", updatedAt = maxOf(System.currentTimeMillis(), target.updatedAt + 1))
                 else -> target!!
             }
@@ -277,6 +279,20 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         }
         reminders.schedule(saved!!)
     }
+    suspend fun setSubtaskDone(eventId: String, subtaskId: String, done: Boolean) = lock.withLock {
+        var saved: Event? = null
+        database.withTransaction {
+            val before = dao.event(eventId) ?: error("事项已不存在")
+            require(before.subtasks.any { it.id == subtaskId }) { "子任务已不存在" }
+            val after = before.copy(subtasks = before.subtasks.map { if (it.id == subtaskId) it.copy(done = done) else it },
+                updatedAt = maxOf(System.currentTimeMillis(), before.updatedAt + 1))
+            dao.putEvent(after)
+            dao.putHistory(History(eventId = eventId, action = if (done) "完成子任务" else "恢复子任务",
+                before = BackupCodec.eventJson(before).toString(), after = BackupCodec.eventJson(after).toString()))
+            saved = after
+        }
+        reminders.schedule(saved!!)
+    }
     suspend fun dismiss(rawId: String) = lock.withLock {
         database.withTransaction {
             dao.allSuggestions().filter { it.rawId == rawId && it.state == "PENDING" }.forEach { dao.putSuggestion(it.copy(state = "DISMISSED")) }
@@ -297,6 +313,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         val siblings = dao.allSuggestions().filter { it.rawId == rawId }
         val state = when {
             siblings.any { it.state == "PENDING" } -> "PENDING"
+            dao.job(rawId)?.state == "REVIEW" -> "PENDING"
             siblings.any { it.state == "CONFIRMED" } -> "CONFIRMED"
             else -> "IGNORED"
         }

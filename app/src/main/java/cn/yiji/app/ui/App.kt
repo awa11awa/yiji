@@ -31,7 +31,21 @@ import java.time.format.DateTimeFormatter
 fun formatTime(time: Long?): String = time?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm")) } ?: "待补充时间"
 fun typeLabel(type: String): String = when (type) { "MERGE" -> "合并来源"; "UPDATE" -> "更新事项"; "CANCEL" -> "取消事项"; else -> "新建事项" }
 fun statusLabel(status: String): String = when (status) { "DONE" -> "已完成"; "CANCELLED" -> "已取消"; else -> "进行中" }
-fun eventTime(e: Event): String = if (e.kind == "DEADLINE") "${formatTime(e.dueAt)} 截止" else "${formatTime(e.startAt)} — ${formatTime(e.endAt)}"
+fun fieldTime(at: Long?, info: TimeField): String = when {
+    at != null -> formatTime(at)
+    info.precision == "DATE" -> "${info.date}（未给时刻）"
+    info.precision == "TBD" -> "时间待定"
+    info.text.isNotBlank() -> "${info.text}（待核对）"
+    else -> "未提供"
+}
+fun draftTime(d: Draft): String = if (d.kind == "DEADLINE") buildList {
+    if (d.opensAt != null || d.timing.open.precision != "NONE") add("${fieldTime(d.opensAt, d.timing.open)} 开放报名")
+    if (d.dueAt != null || d.timing.due.precision != "NONE" || d.timing.due.text.isNotBlank()) add("${fieldTime(d.dueAt, d.timing.due)} 截止")
+    if (d.subtasks.isNotEmpty()) add("${d.subtasks.count { it.done }}/${d.subtasks.size} 子任务完成 · 各项截止见详情")
+    if (isEmpty()) add("未提供截止时间")
+}.joinToString("\n") else "${fieldTime(d.startAt, d.timing.start)} 开始" +
+    if (d.endAt != null || d.timing.end.precision != "NONE") " — ${fieldTime(d.endAt, d.timing.end)} 结束" else " · 结束时间未提供"
+fun eventTime(e: Event): String = draftTime(e.draft())
 
 enum class AppTab(val title: String, val label: String) {
     HOME("忆迹", "首页"), EVENTS("我的事项", "事项"), HOMEWORK("作业", "作业"),
@@ -298,8 +312,9 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
                     drafts.forEach { suggestion ->
                         HorizontalDivider()
                         Text(suggestion.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("${suggestion.category} · ${if (suggestion.kind == "DEADLINE") "截止事项" else "日程"} · ${typeLabel(suggestion.type)}", style = MaterialTheme.typography.labelMedium)
-                        Text(if (suggestion.kind == "DEADLINE") "${formatTime(suggestion.dueAt)} 截止" else "${formatTime(suggestion.startAt)} — ${formatTime(suggestion.endAt)}", style = MaterialTheme.typography.bodyMedium)
+                        Text("${suggestion.category} · ${if (suggestion.kind == "DEADLINE") "任务" else "日程"} · ${typeLabel(suggestion.type)}", style = MaterialTheme.typography.labelMedium)
+                        Text(draftTime(suggestion.draft()), style = MaterialTheme.typography.bodyMedium)
+                        suggestion.subtasks.forEach { task -> Text("${if (task.optional) "选做 · " else ""}${task.title} · ${fieldTime(task.dueAt, task.due)}", style = MaterialTheme.typography.bodySmall) }
                         if (suggestion.issues.isNotBlank()) Text(suggestion.issues, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Button(onClick = { onConfirm(suggestion.id) }) { Text("核对确认") }
@@ -331,8 +346,8 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
 @Composable
 fun ConflictScreen(conflicts: List<TimeConflict>, events: List<Event>, onEvent: (String) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Text("只比较进行中的日程。截止事项不会被当作占用时间。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (conflicts.isEmpty()) item { EmptyState("暂无时间冲突", "已确认的日程没有重叠。", Icons.Default.CheckCircle) }
+        item { Text("只比较开始和结束均明确的进行中日程。时长未知的事项无法完整检查冲突。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (conflicts.isEmpty()) item { EmptyState("暂无已确认的时间冲突", "时间完整的日程没有重叠；时间未完整的事项仍需核对。", Icons.Default.CheckCircle) }
         items(conflicts) { c ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer), shape = RoundedCornerShape(20.dp)) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -49,6 +49,6 @@ class CoreTest {
     @Test fun invalidDraftRequiresCorrection() {
         assertNotNull(Draft(title = "").validationError())
         assertNotNull(schedule(200, 100).validationError())
-        assertNotNull(Draft("作业", kind = "DEADLINE").validationError())
+        assertNull(Draft("作业", kind = "DEADLINE").validationError())
     }
 }

@@ -53,12 +53,12 @@ class CloudExtractionTest {
     }
     @Test fun unknownTargetCannotMutateAnExistingEvent() {
         val input = ExtractionInput(raw("原定班会取消"))
-        assertTrue(runCatching { CloudExtractionClient.parse(answer(item("原定班会取消", operation = "CANCEL").put("targetId", "invented-id")), input, zone) }.isFailure)
+        assertTrue(CloudExtractionClient.parse(answer(item("原定班会取消", operation = "CANCEL").put("targetId", "invented-id")), input, zone).needsReview)
     }
     @Test fun historicalMessageCannotBeReturnedAsANewCurrentEvent() {
         val input = ExtractionInput(raw("收到谢谢"), context = listOf(raw("明天14:00开班会")))
         val generated = item("明天14:00开班会").put("evidence", ref("明天14:00开班会", input.context.single().id))
-        assertTrue(runCatching { CloudExtractionClient.parse(answer(generated), input, zone) }.isFailure)
+        assertTrue(CloudExtractionClient.parse(answer(generated), input, zone).needsReview)
     }
     @Test fun locationOnlyUpdatePreservesExistingTimes() {
         val existing = Event(title = "班会", category = "会议", kind = "SCHEDULE", startAt = at + 86400000, endAt = at + 90000000, location = "301")
@@ -68,16 +68,16 @@ class CloudExtractionTest {
         assertEquals(existing.startAt, draft.startAt); assertEquals(existing.endAt, draft.endAt)
         assertEquals("图书馆302", draft.location)
     }
-    @Test fun dateOnlyUpdatePreservesClockAndDurationWithVisibleIssue() {
+    @Test fun dateOnlyUpdateReplacesDateWithoutInventingClockOrDuration() {
         val start = ZonedDateTime.of(2026, 10, 19, 14, 0, 0, 0, zone).toInstant().toEpochMilli()
         val existing = Event(title = "班会", category = "会议", kind = "SCHEDULE", startAt = start, endAt = start + 3600000)
         val input = ExtractionInput(raw("改到周五，地点不变"), candidates = listOf(existing))
         val generated = item("改到周五，地点不变", operation = "UPDATE").put("targetId", existing.id).put("start", ref("周五"))
         val draft = CloudExtractionClient.parse(answer(generated), input, zone).drafts.single()
-        val changed = Instant.ofEpochMilli(draft.startAt!!).atZone(zone)
-        assertEquals(23, changed.dayOfMonth); assertEquals(14, changed.hour)
-        assertEquals(3600000L, draft.endAt!! - draft.startAt!!)
-        assertTrue(draft.issues.any { it.contains("沿用") })
+        assertNull(draft.startAt); assertNull(draft.endAt)
+        assertEquals("2026-10-23", draft.timing.start.date)
+        assertEquals("DATE", draft.timing.start.precision)
+        assertNull(draft.validationError())
     }
     @Test fun relativeTimeInContextUsesThatMessagesReceptionDate() {
         val previous = raw("明天14:00开班会").copy(receivedAt = at - 86400000)

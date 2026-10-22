@@ -45,15 +45,15 @@ class HomeworkRepositoryTest {
         assertEquals("CONFIRMED", repository.dao.suggestion(suggestion.id)!!.state)
     }
 
-    @Test fun incompleteAssignmentIsRetainedUntilTimeIsFilledIn() = runBlocking {
+    @Test fun incompleteAssignmentCanBeSavedAndTimeCompletedLater() = runBlocking {
         val suggestion = importHomework("请完成高数课后习题第1、3、5题")
         assertNull(suggestion.dueAt)
-        assertEquals("作业", suggestion.category)
-        assertTrue(runCatching { repository.confirm(suggestion.id, suggestion.draft(), "NEW", null, 30) }.isFailure)
-        assertEquals("PENDING", repository.dao.suggestion(suggestion.id)!!.state)
-        assertTrue(repository.dao.allEvents().isEmpty())
-        val id = repository.confirm(suggestion.id, suggestion.draft().copy(dueAt = reference + 86_400_000L), "NEW", null, 30)
-        assertNotNull(repository.dao.event(id))
+        val id = repository.confirm(suggestion.id, suggestion.draft(), "NEW", null, 30)
+        assertEquals("CONFIRMED", repository.dao.suggestion(suggestion.id)!!.state)
+        val event = repository.dao.event(id)!!
+        assertNull(event.dueAt)
+        repository.save(event.draft().copy(dueAt = reference + 86_400_000L), 30, id, event.updatedAt)
+        assertNotNull(repository.dao.event(id)!!.dueAt)
     }
 
     @Test fun differentHomeworkFromTheSameGroupIsNotLost() = runBlocking {
