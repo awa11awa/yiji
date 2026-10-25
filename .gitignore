@@ -15,3 +15,6 @@ release-artifacts/
 __pycache__/
 .pytest_cache/
 *.log
+
+qq-runtime/cache/
+qq-runtime/generated-assets/

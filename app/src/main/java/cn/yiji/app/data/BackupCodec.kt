@@ -21,7 +21,7 @@ object BackupCodec {
         StructuredFields.timing(o.optJSONObject("timing")?.toString() ?: "{}"), StructuredFields.subtasks(o.optJSONArray("subtasks")?.toString() ?: "[]"))
     fun rawJson(r: RawMessage): JSONObject = JSONObject().apply {
         put("id", r.id); put("title", r.title); put("body", r.body); put("source", r.source); put("packageName", r.packageName)
-        put("receivedAt", r.receivedAt); put("state", r.state); put("fingerprint", r.fingerprint); put("info", r.info)
+        put("receivedAt", r.receivedAt); put("state", r.state); put("fingerprint", r.fingerprint); put("info", r.info); if(r.qqMetadata.isNotEmpty()) put("qqMetadata",r.qqMetadata)
     }
     fun encode(b: Backup): String = JSONObject().apply {
         put("format", "cn.yiji.backup"); put("version", 2); put("exportedAt", System.currentTimeMillis())
@@ -54,7 +54,7 @@ object BackupCodec {
         require(root.getString("format") == "cn.yiji.backup" && root.getInt("version") in 1..2) { "不是支持的忆迹备份" }
         val events = rows(root, "events", ::event)
         val raw = rows(root, "raw") { o -> RawMessage(o.getString("id"), o.getString("title"), o.getString("body"), o.getString("source"),
-            o.getString("packageName"), o.getLong("receivedAt"), o.getString("state"), o.getString("fingerprint"), o.getString("info")) }
+            o.getString("packageName"), o.getLong("receivedAt"), o.getString("state"), o.getString("fingerprint"), o.getString("info"),o.optString("qqMetadata")) }
         val suggestions = rows(root, "suggestions") { o -> Suggestion(o.getString("id"), o.getString("rawId"), o.getString("type"), o.nullableString("targetId"),
             o.getString("title"), o.getString("category"), o.getString("kind"), o.nullableLong("startAt"), o.nullableLong("endAt"), o.nullableLong("dueAt"),
             o.getString("location"), o.getString("action"), o.getString("note"), o.getString("issues"), o.getString("reason"), o.getString("state"), o.getString("engine"), o.nullableLong("opensAt"),
@@ -67,7 +67,7 @@ object BackupCodec {
             history.map { it.id }.distinct().size == history.size && links.distinct().size == links.size) { "备份包含重复记录" }
         require((eventIds + rawIds).all { runCatching { java.util.UUID.fromString(it) }.isSuccess }) { "备份标识无效" }
         require(events.all { it.draft().validationError() == null && it.status in setOf("ACTIVE", "DONE", "CANCELLED") && it.reminderMinutes in -1..10080 }) { "备份中的事项字段无效" }
-        require(raw.all { it.body.length <= 16000 && it.title.length <= 200 && it.state in setOf("PENDING", "CONFIRMED", "IGNORED") }) { "备份中的通知字段无效" }
+        require(raw.all { (it.packageName.startsWith("qq-protocol:") || it.body.length <= 16000) && it.title.length <= 200 && it.state in setOf("PENDING", "CONFIRMED", "IGNORED") }) { "备份中的通知字段无效" }
         require(suggestions.all { it.rawId in rawIds && it.type in setOf("NEW", "MERGE", "UPDATE", "CANCEL") && it.state in setOf("PENDING", "CONFIRMED", "DISMISSED") }) { "备份中的建议无效" }
         require(links.all { it.eventId in eventIds && it.rawId in rawIds } && history.all { it.eventId in eventIds }) { "备份来源或历史关联无效" }
         return Backup(events, raw, suggestions, links, history)

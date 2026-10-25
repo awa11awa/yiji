@@ -1,0 +1,5 @@
+-keep class dev.yiji.qqlocalprobe.** { *; }
+-keep class ai.onnxruntime.** { *; }
+-keep class io.ktor.client.engine.cio.CIOEngineContainer { *; }
+-keepattributes Signature,InnerClasses,EnclosingMethod,RuntimeVisibleAnnotations,AnnotationDefault
+-dontwarn org.slf4j.impl.**

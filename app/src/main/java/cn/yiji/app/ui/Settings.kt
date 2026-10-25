@@ -41,7 +41,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: () -> Unit = {}) {
+fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: () -> Unit = {}, onQq: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = repository.preferences
     val app = context.applicationContext as YijiApplication
@@ -115,6 +115,10 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { ApiSettingsEntry(repository, onApi) }
+        item { SettingsSection("QQ 采集") {
+            Text("按人或群聊选择采集范围，接收端可在退出界面后继续运行。")
+            OutlinedButton(onClick = onQq, modifier = Modifier.fillMaxWidth()) { Text("管理 QQ 登录与采集会话") }
+        } }
         item { SettingsSection("通知接入") {
             Text("授权后仅接收选定应用发布的系统通知。完整聊天记录可通过粘贴或分享文本导入。", style = MaterialTheme.typography.bodyMedium)
             if (!authorized) OutlinedButton(onClick = { consent = true }, modifier = Modifier.fillMaxWidth()) { Text("授权读取系统通知") }
@@ -211,7 +215,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); content()

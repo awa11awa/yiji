@@ -21,10 +21,14 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
     val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val repository: Repository by lazy {
         Repository(Room.databaseBuilder(this, YijiDatabase::class.java, "yiji.db")
-            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3).build(), Preferences(this), ReminderScheduler(this))
+            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4).build(), Preferences(this), ReminderScheduler(this))
     }
     override fun onCreate() {
         super.onCreate()
+        val processName=if(android.os.Build.VERSION.SDK_INT>=28) Application.getProcessName()
+            else getSystemService(android.app.ActivityManager::class.java).runningAppProcesses?.firstOrNull { it.pid==android.os.Process.myPid() }?.processName.orEmpty()
+        if(processName.endsWith(":qq_capture")) return
+        notificationScope.launch { cn.yiji.app.qq.QqIngress.drain(this@YijiApplication) }
         ReminderScheduler(this).createChannel()
         notificationScope.launch { repository.recoverMisclassifiedNotices() }
         ExtractionWork.schedule(this)

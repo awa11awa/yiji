@@ -42,7 +42,7 @@ class MigrationTest {
             }).build())
         helper.writableDatabase; helper.close()
         val database = Room.databaseBuilder(context, YijiDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(YijiDatabase.MIGRATION_2_3).build()
+            .addMigrations(YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4).build()
         try {
             val event = database.dao().event("event-v2")!!
             assertEquals(5000L, event.startAt); assertEquals(6000L, event.endAt)
@@ -50,6 +50,7 @@ class MigrationTest {
             val suggestion = database.dao().suggestion("suggestion-v2")!!
             assertEquals("event-v2", suggestion.targetId); assertEquals(7000L, suggestion.startAt)
             assertEquals("课程调整", database.dao().raw("raw-v2")!!.body)
+            assertEquals("", database.dao().raw("raw-v2")!!.qqMetadata)
             database.dao().putEvent(event.copy(subtasks = listOf(cn.yiji.app.core.Subtask("第一项"))))
             assertEquals(1, database.dao().event(event.id)!!.subtasks.size)
         } finally { database.close(); context.deleteDatabase(name) }
@@ -77,7 +78,7 @@ class MigrationTest {
         helper.writableDatabase
         helper.close()
         val database = Room.databaseBuilder(context, YijiDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3).build()
+            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4).build()
         try {
             assertEquals("明晚交报告", database.dao().raw("old-raw")!!.body)
             database.dao().putJob(MessageJob("old-raw"))

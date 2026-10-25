@@ -6,7 +6,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <queries><package android:name="com.tencent.mobileqq" /><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
     <application android:name=".YijiApplication" android:label="忆迹" android:icon="@drawable/ic_yiji" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true" android:theme="@style/Theme.Yiji" android:usesCleartextTraffic="false">
         <provider android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup" android:exported="false" tools:node="merge">
@@ -16,6 +17,13 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>
         </activity>
+        <activity android:name="dev.yiji.qqlocalprobe.LoginChallengeActivity" android:exported="false" />
+        <service android:name=".qq.QqCaptureService" android:process=":qq_capture" android:exported="false"
+            android:foregroundServiceType="specialUse" android:stopWithTask="false">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled continuous QQ message capture from explicitly selected conversations, with a visible notification and pause action." />
+        </service>
+        <receiver android:name=".qq.QqIngressReceiver" android:exported="false" />
         <service android:name=".platform.YijiNotificationListener" android:label="忆迹通知接入" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>

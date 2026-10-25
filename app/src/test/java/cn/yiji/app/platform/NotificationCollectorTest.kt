@@ -59,6 +59,17 @@ class NotificationCollectorTest {
         return Notification.Builder(context, "messages").setStyle(style).build()
     }
 
+    @Test fun pausedDirectQqDoesNotBypassConversationSelectionThroughNotifications() = runBlocking {
+        repository.preferences.packages = setOf("com.tencent.mobileqq", "com.tencent.mm")
+        cn.yiji.app.qq.QqStore(context).use { it.directMode = true; it.enabled = false }
+        try {
+            collect(sbn(notification(first), pkg = "com.tencent.mobileqq"), "QQ")
+            assertTrue(repository.dao.allRaw().isEmpty())
+            collect(sbn(notification(first)), "微信")
+            assertEquals(1, repository.dao.allRaw().size)
+        } finally { context.deleteDatabase(cn.yiji.app.qq.QqStore.DATABASE) }
+    }
+
     @Test fun firstNotificationFollowedBySummaryUpdatesKeepsDifferentMessages() = runBlocking {
         collect(sbn(notification(first)), "微信")
         collect(sbn(notification(second, summary = true), time + 1000), "微信")

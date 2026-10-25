@@ -10,6 +10,8 @@ class NotificationCollector(private val repository: Repository, private val moni
     suspend fun collect(sbn: StatusBarNotification, source: String, recovery: Boolean = false) {
         val prefs = repository.preferences
         if (sbn.packageName !in prefs.packages) return
+        if (sbn.packageName == "com.tencent.mobileqq" && cn.yiji.app.qq.QqStore.exists(prefs.context) &&
+            cn.yiji.app.qq.QqStore(prefs.context).use { it.directMode }) return
         if (!prefs.collecting) { monitor.record(source, "采集已暂停"); return }
         try {
             val texts = NotificationTextExtractor.extract(sbn.notification, sbn.postTime)

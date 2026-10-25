@@ -101,6 +101,7 @@ class RescheduleReceiver : BroadcastReceiver() {
             "android.intent.action.TIME_SET", "android.intent.action.TIMEZONE_CHANGED",
             "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED")) return
         if (intent.action in setOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED)) {
+            cn.yiji.app.qq.QqCaptureService.resumeIfEnabled(context)
             (context.applicationContext as YijiApplication).collectionSupervisor.refresh(allowForegroundStart = true, recover = true)
         }
         val result = goAsync()

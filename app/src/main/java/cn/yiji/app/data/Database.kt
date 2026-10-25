@@ -45,6 +45,7 @@ data class RawMessage(
     @PrimaryKey val id: String = newId(), val title: String, val body: String,
     val source: String, val packageName: String = "manual", val receivedAt: Long = System.currentTimeMillis(),
     val state: String = "PENDING", val fingerprint: String = "", val info: String = "",
+    @ColumnInfo(defaultValue = "''") val qqMetadata: String = "",
 )
 
 @Entity(tableName = "message_jobs", foreignKeys = [ForeignKey(entity = RawMessage::class,
@@ -87,7 +88,8 @@ data class History(
 interface YijiDao {
     @Query("SELECT * FROM message_jobs") fun observeJobs(): Flow<List<MessageJob>>
     @Query("SELECT * FROM events ORDER BY COALESCE(startAt, dueAt, 9223372036854775807), createdAt DESC") fun observeEvents(): Flow<List<Event>>
-    @Query("SELECT * FROM raw_messages ORDER BY receivedAt DESC") fun observeRaw(): Flow<List<RawMessage>>
+    // The list displays text; load structured QQ archives only for export/detail reads.
+    @Query("SELECT id,title,body,source,packageName,receivedAt,state,fingerprint,info,'' AS qqMetadata FROM raw_messages ORDER BY receivedAt DESC") fun observeRaw(): Flow<List<RawMessage>>
     @Query("SELECT * FROM suggestions WHERE state = 'PENDING'") fun observeSuggestions(): Flow<List<Suggestion>>
     @Query("SELECT * FROM events") suspend fun allEvents(): List<Event>
     @Query("SELECT * FROM raw_messages") suspend fun allRaw(): List<RawMessage>
@@ -125,10 +127,15 @@ interface YijiDao {
 }
 
 @TypeConverters(StructuredFields::class)
-@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class], version = 3, exportSchema = true)
+@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class], version = 4, exportSchema = true)
 abstract class YijiDatabase : RoomDatabase() {
     abstract fun dao(): YijiDao
     companion object {
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE raw_messages ADD COLUMN qqMetadata TEXT NOT NULL DEFAULT ''")
+            }
+        }
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 listOf("events", "suggestions").forEach { table ->

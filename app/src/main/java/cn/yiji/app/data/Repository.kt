@@ -53,6 +53,30 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         return result
     }
 
+    /** QQ IDs distinguish identical text and make crash replay idempotent. */
+    suspend fun enqueueQq(envelope: cn.yiji.app.qq.QqEnvelope, scheduleWork: Boolean = true): IngestResult {
+        val result=lock.withLock {
+            dao.raw(envelope.id)?.let { return@withLock IngestResult(it.id,IngestDisposition.DUPLICATE) }
+            val o=org.json.JSONObject(envelope.payload)
+            val sender=o.optJSONObject("senderInfo")?.let { it.optString("groupCard").ifBlank { it.optString("nickname") } }
+                .orEmpty().ifBlank { o.optString("senderUin") }
+            val body=o.optString("text").ifBlank { "[消息内容见结构化存档]" }
+            val source=if(envelope.scene=="GROUP") "QQ 群聊 · $sender" else "QQ 私聊"
+            val metadata=android.util.Base64.encodeToString(cn.yiji.app.qq.QqStore.pack(envelope.payload),android.util.Base64.NO_WRAP)
+            val raw=RawMessage(id=envelope.id,title=o.optString("conversationName",envelope.peer.toString()).take(200),body=body,
+                source=source,packageName="qq-protocol:${envelope.account}:${envelope.scene}:${envelope.peer}",
+                receivedAt=o.optLong("timestamp")*1000,info=when(o.optString("contentState")) {
+                    "expansion_failed" -> "长消息展开失败，已保存现有正文、原始字段和资源标识"
+                    "partial" -> "含暂不支持的消息元素，已保存现有正文和原始字段"
+                    else -> "完整原文已保存，等待本地筛选"
+                },qqMetadata=metadata)
+            database.withTransaction { dao.putRaw(raw);dao.putJob(MessageJob(raw.id)) }
+            IngestResult(raw.id,IngestDisposition.QUEUED)
+        }
+        if(scheduleWork && result.disposition!=IngestDisposition.DUPLICATE) schedule()
+        return result
+    }
+
     private suspend fun storeRaw(title: String, body: String, source: String, packageName: String, receivedAt: Long): IngestResult = lock.withLock {
         require(body.isNotBlank() || title.isNotBlank()) { "通知文本不能为空" }
         require(body.length <= 16000 && title.length <= 200) { "通知内容过长，请分段导入" }

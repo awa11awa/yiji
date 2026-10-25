@@ -55,7 +55,7 @@ enum class AppTab(val title: String, val label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?, consumeIntent: () -> Unit) = YijiTheme {
+fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?, requestedQq: Boolean = false, consumeIntent: () -> Unit) = YijiTheme {
     val events by repository.events.collectAsStateWithLifecycle(initialValue = emptyList())
     val raw by repository.rawMessages.collectAsStateWithLifecycle(initialValue = emptyList())
     val suggestions by repository.suggestions.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -73,9 +73,10 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val conflicts = remember(events) { ConflictDetector.detect(events.map { it.existing() }) }
-    LaunchedEffect(requestedEvent, sharedText) {
+    LaunchedEffect(requestedEvent, sharedText, requestedQq) {
         if (requestedEvent != null) route = "detail:$requestedEvent"
         if (sharedText != null) { pasteText = sharedText; route = "paste" }
+        if (requestedQq) route = "qq"
         consumeIntent()
     }
     BackHandler(route.isNotBlank()) { route = if (route == "apiGuide") "api" else "" }
@@ -91,6 +92,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         route == "newHomework" -> "添加作业"
         route == "paste" -> "导入通知文本"
         route == "conflicts" -> "时间冲突"
+        route == "qq" -> "QQ 采集"
         route == "api" -> "API 与模型"
         route == "apiGuide" -> "获取 API 教程"
         else -> tab.title
@@ -122,6 +124,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
+                route == "qq" -> QqSettingsScreen(repository, snackbar)
                 route == "api" -> ApiProfilesScreen(repository, snackbar) { route = "apiGuide" }
                 route == "apiGuide" -> ApiGuideScreen()
                 route.startsWith("complete:") -> {
@@ -183,7 +186,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                     onComplete = { route = "complete:$it" }, onIgnoreRaw = { perform { repository.dismiss(it) } },
                     onManual = { perform { route = "confirm:${repository.manualSuggestion(it)}" } }, jobs = jobs,
                     seen = seen, onRead = readStore::markRead)
-                else -> SettingsScreen(repository, snackbar) { route = "api" }
+                else -> SettingsScreen(repository, snackbar, onApi = { route = "api" }, onQq = { route = "qq" })
             }
         }
     }

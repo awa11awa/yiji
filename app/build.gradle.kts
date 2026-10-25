@@ -31,11 +31,17 @@ android {
         applicationId = "cn.yiji.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "2.1.4"
+        versionCode = 11
+        versionName = "2.2.0"
+        ndk.abiFilters += "arm64-v8a"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildTypes.getByName("release").isDebuggable = false
+    buildTypes.getByName("release") {
+        isDebuggable = false
+        isMinifyEnabled = true
+        isShrinkResources = true
+        proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
     if (hasStableSigning) {
         signingConfigs.create("yijiStable") {
             storeFile = stableStore
@@ -52,7 +58,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
@@ -75,7 +81,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.1")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     kapt("androidx.room:room-compiler:2.7.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // Match the compiler's metadata reader without adding a runtime dependency.
+    kapt("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.10")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     testRuntimeOnly("com.microsoft.onnxruntime:onnxruntime:1.23.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
@@ -83,5 +91,23 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
+
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+val prepareQqRuntime by tasks.registering(Exec::class) {
+    val runtime = rootProject.file("qq-runtime")
+    inputs.files(fileTree(runtime) { include("tools/**", "bridge/**", "compile-stubs/**", "third_party/**", "login-dependencies.json", "prepare.py", "LICENSE", "THIRD_PARTY_NOTICES.md") })
+    outputs.files(runtime.resolve("cache/acidify-android.jar"), runtime.resolve("cache/xmlutil-android.jar"))
+    outputs.dir(runtime.resolve("generated-assets"))
+    commandLine("python3", runtime.resolve("prepare.py"), android.sdkDirectory)
+}
+android.sourceSets.getByName("main").assets.srcDir(rootProject.file("qq-runtime/generated-assets"))
+tasks.named("preBuild") { dependsOn(prepareQqRuntime) }
+val qqRuntimeJars = files(rootProject.file("qq-runtime/cache/acidify-android.jar"), rootProject.file("qq-runtime/cache/xmlutil-android.jar")).builtBy(prepareQqRuntime)
+dependencies { implementation(qqRuntimeJars) }
+configurations.configureEach {
+    exclude(group = "io.github.pdvrieze.xmlutil", module = "core-jvm")
+    exclude(group = "io.github.pdvrieze.xmlutil", module = "core")
+}
+apply(from = "qq-dependencies.gradle.kts")

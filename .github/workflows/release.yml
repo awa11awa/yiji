@@ -17,7 +17,7 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
       YIJI_SIGNING_CERTIFICATE_SHA256: 041f228046082db2aaf03367fc29417b0620aadc45a4c5c05d42a08c579f0fea
