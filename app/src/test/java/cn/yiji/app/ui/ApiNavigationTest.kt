@@ -40,7 +40,8 @@ class ApiNavigationTest {
     }
     @Test fun apiEditorHasPresetsModelSelectionAndConnectionTest() {
         openApi()
-        compose.onNodeWithText("添加").performScrollTo().performClick()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("添加"))
+        compose.onNodeWithText("添加").performClick()
         compose.onNodeWithText("添加 API 配置").assertIsDisplayed()
         compose.onNodeWithText("自定义").performClick()
         compose.onNodeWithText("API Key").assertIsDisplayed()

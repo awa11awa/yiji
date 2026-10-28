@@ -31,7 +31,7 @@ android {
         applicationId = "cn.yiji.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
+        versionCode = 14 // v2.3.1: security maintenance release; preserves the existing upgrade sequence.
         versionName = "2.3.1"
         ndk.abiFilters += "arm64-v8a"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
