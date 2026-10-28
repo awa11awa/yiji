@@ -8,7 +8,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-data class ExtractionInput(val current: RawMessage, val context: List<RawMessage> = emptyList(), val candidates: List<Event> = emptyList(), val forceCloud: Boolean = false)
+data class ExtractionInput(val current: RawMessage, val context: List<RawMessage> = emptyList(), val candidates: List<Event> = emptyList(), val forceCloud: Boolean = false,
+    val crossSourceCandidateIds: Set<String> = emptySet())
 class ExtractionFailure(val userMessage: String, val retryable: Boolean = false, val waitingForApi: Boolean = false,
     val retryAfterMillis: Long = 0) : Exception(userMessage)
 data class ApiResponse(val status: Int, val body: String, val retryAfterMillis: Long = 0)

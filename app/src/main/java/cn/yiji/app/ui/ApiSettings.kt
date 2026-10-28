@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -50,6 +51,7 @@ fun ApiProfilesScreen(repository: Repository, snackbar: SnackbarHostState, onGui
     var editing by remember { mutableStateOf<ApiProfile?>(null) }
     var deleting by remember { mutableStateOf<ApiProfile?>(null) }
     var consent by remember { mutableStateOf<ApiProfile?>(null) }
+    var crossSourceConsent by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf("") }
     fun work(action: suspend () -> Unit) { scope.launch {
@@ -83,9 +85,17 @@ fun ApiProfilesScreen(repository: Repository, snackbar: SnackbarHostState, onGui
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("带上相关上下文")
-                            Text("最多4条同来源、同标题的近期日程候选，以及相关已确认事项。可关闭。", style = MaterialTheme.typography.bodySmall)
+                            Text("最多4条同来源、同标题的近期日程候选，以及该会话关联的已确认事项。可关闭。", style = MaterialTheme.typography.bodySmall)
                         }
                         Switch(state.includeContext, { work { store.includeContext(it) } })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("跨来源事项关联")
+                            Text("允许将其他会话、其他应用及手动事项的相关内容提供给模型。默认关闭。", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(state.crossSourceContext, modifier = Modifier.testTag("cross-source-context"), enabled = state.includeContext,
+                            onCheckedChange = { if (it) crossSourceConsent = true else work { store.crossSourceContext(false) } })
                     }
                     OutlinedButton(onClick = onGuide, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.MenuBook, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("获取免费 API · 操作教程")
@@ -141,13 +151,18 @@ fun ApiProfilesScreen(repository: Repository, snackbar: SnackbarHostState, onGui
     }) }
     consent?.let { profile -> AlertDialog(onDismissRequest = { consent = null }, title = { Text("使用这套云端配置？") },
         text = { Text("将日程候选通知的标题、正文和接收时间发送到：\n" + profile.baseUrl +
-            "\n\n模型：" + profile.model + (if (state.includeContext) "\n同时发送有限的相关消息与事项，帮助理解变更。分组依据是通知标题，可能存在歧义，请核对关联结果。" else "\n不发送历史消息与已有事项。") +
+            "\n\n模型：" + profile.model + (if (state.includeContext) "\n同时发送同会话的有限消息与事项，帮助理解变更。分组依据是通知标题，可能存在歧义，请核对关联结果。" +
+                (if (state.crossSourceContext) "\n已授权跨来源关联：可能同时发送其他会话、应用及手动事项的标题、时间、地点和子任务。" else "") else "\n不发送历史消息与已有事项。") +
             "\n\n开启后继续处理已保存的待提取候选。所有新建、更新、取消结果仍需你确认。") },
         confirmButton = { TextButton(onClick = {
             consent = null
             work { store.select(profile.id); store.enable(true); repository.resumeWaiting(); snackbar.showSnackbar("云端识别已开启") }
         }) { Text("同意并开启") } },
         dismissButton = { TextButton(onClick = { consent = null }) { Text("取消") } }) }
+    if (crossSourceConsent) AlertDialog(onDismissRequest = { crossSourceConsent = false }, title = { Text("允许跨来源发送事项？") },
+        text = { Text("云端识别开启时，相关的其他会话、其他应用以及手动创建的事项，其标题、时间、地点、行动内容和子任务也可能发送给当前模型服务商。私人事项可能被选中；如果只希望发送当前会话内容，请保持关闭。") },
+        confirmButton = { TextButton(onClick = { crossSourceConsent = false; work { store.crossSourceContext(true) } }) { Text("同意并开启") } },
+        dismissButton = { TextButton(onClick = { crossSourceConsent = false }) { Text("保持关闭") } })
     deleting?.let { profile -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("删除这套 API 配置？") },
         text = { Text("将删除“" + profile.name + "”及其本机密钥。事项和通知原文保留。") },
         confirmButton = { TextButton(onClick = { deleting = null; work { store.delete(profile.id) } }) { Text("删除") } },

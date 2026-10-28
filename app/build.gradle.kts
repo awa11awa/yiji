@@ -31,8 +31,8 @@ android {
         applicationId = "cn.yiji.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "2.3.0"
+        versionCode = 14
+        versionName = "2.3.1"
         ndk.abiFilters += "arm64-v8a"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

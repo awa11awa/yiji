@@ -27,5 +27,9 @@ class Preferences(context: Context) {
     var ignoredRetentionDays: Int
         get() = prefs.getInt("ignoredRetentionDays", 0)
         set(value) { require(value in 0..3650); prefs.edit().putInt("ignoredRetentionDays", value).apply() }
+    val clearedBefore: Long get() = prefs.getLong("clearedBefore", 0L)
+    fun markCleared(at: Long) {
+        check(prefs.edit().putLong("clearedBefore", maxOf(clearedBefore, at)).commit()) { "清空边界保存失败，请重试" }
+    }
     fun accepts(packageName: String): Boolean = collecting && packageName in packages
 }

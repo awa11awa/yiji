@@ -20,6 +20,8 @@ class ApiNavigationTest {
     @Before fun resetApiProfiles() {
         val store = (compose.activity.application as YijiApplication).repository.apiProfiles
         store.enable(false)
+        store.includeContext(true)
+        store.crossSourceContext(false)
         store.save(cn.yiji.app.data.ApiProfile.glm, null)
         store.select(cn.yiji.app.data.ApiProfile.glm.id)
     }
@@ -45,5 +47,21 @@ class ApiNavigationTest {
         compose.onNodeWithText("获取模型列表").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("测试连接").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("保存配置").performScrollTo().assertIsDisplayed()
+    }
+    @Test fun crossSourceContextRequiresItsOwnConfirmationAndCanBeRevoked() {
+        val store = (compose.activity.application as YijiApplication).repository.apiProfiles
+        openApi()
+        compose.onNodeWithTag("cross-source-context").performScrollTo().performClick()
+        compose.onNodeWithText("允许跨来源发送事项？").assertIsDisplayed()
+        org.junit.Assert.assertFalse(store.current.crossSourceContext)
+        compose.onNodeWithText("保持关闭").performClick()
+        org.junit.Assert.assertFalse(store.current.crossSourceContext)
+        compose.onNodeWithTag("cross-source-context").performClick()
+        compose.onNodeWithText("同意并开启").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertTrue(store.current.crossSourceContext)
+        compose.onNodeWithTag("cross-source-context").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertFalse(store.current.crossSourceContext)
     }
 }

@@ -51,11 +51,11 @@ public final class ProbeRunner {
         if (!Process.is64Bit()) throw new IllegalStateException("此版本需要 64 位 Android 进程。");
 
         log("[BEGIN 1] 读取已安装 QQ 的包信息");
-        PackageInfo info = context.getPackageManager().getPackageInfo("com.tencent.mobileqq", 0);
+        // Verify identity before copying libraries, constructing a loader or executing any QQ code.
+        PackageInfo info = QqPackageTrust.requireTrusted(context);
         ApplicationInfo qq = info.applicationInfo;
         long version = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
         log("[QQ] version=" + info.versionName + " code=" + version + " apk=" + qq.sourceDir);
-        if (!"9.3.75".equals(info.versionName)) log("[NOTE] 静态接口基于 QQ 9.3.75；当前版本仍继续实际测试。");
         List<String> apks = new ArrayList<>();
         apks.add(qq.sourceDir);
         if (qq.splitSourceDirs != null) apks.addAll(Arrays.asList(qq.splitSourceDirs));

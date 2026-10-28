@@ -79,7 +79,8 @@ class KeystoreApiSecrets(context: Context) : ApiSecrets {
     companion object { private const val ALIAS = "yiji-api-key-v2.1" }
 }
 
-data class ApiProfilesState(val profiles: List<ApiProfile>, val selectedId: String, val enabled: Boolean, val includeContext: Boolean) {
+data class ApiProfilesState(val profiles: List<ApiProfile>, val selectedId: String, val enabled: Boolean, val includeContext: Boolean,
+    val crossSourceContext: Boolean = false) {
     val selected: ApiProfile? get() = profiles.firstOrNull { it.id == selectedId }
 }
 
@@ -95,12 +96,14 @@ class ApiProfileStore(context: Context, private val secrets: ApiSecrets = Keysto
             ApiProfile(o.getString("id"), o.getString("name"), o.getString("baseUrl"), o.getString("model")).also { it.validate() }
         }.getOrNull() }.distinctBy { it.id }.ifEmpty { listOf(ApiProfile.glm) }
         val selected = prefs.getString("selected", profiles.first().id).orEmpty().takeIf { id -> profiles.any { it.id == id } } ?: profiles.first().id
-        return ApiProfilesState(profiles, selected, prefs.getBoolean("enabled", false), prefs.getBoolean("includeContext", true))
+        return ApiProfilesState(profiles, selected, prefs.getBoolean("enabled", false), prefs.getBoolean("includeContext", true),
+            prefs.getBoolean("crossSourceContext", false))
     }
     private fun persist(value: ApiProfilesState) {
         val array = JSONArray(value.profiles.map { p -> JSONObject().put("id", p.id).put("name", p.name).put("baseUrl", p.baseUrl).put("model", p.model) })
         check(prefs.edit().putString("profiles", array.toString()).putString("selected", value.selectedId)
-            .putBoolean("enabled", value.enabled).putBoolean("includeContext", value.includeContext).commit()) { "配置保存失败，请重试" }
+            .putBoolean("enabled", value.enabled).putBoolean("includeContext", value.includeContext)
+            .putBoolean("crossSourceContext", value.crossSourceContext).commit()) { "配置保存失败，请重试" }
         mutable.value = value
     }
     @Synchronized fun save(profile: ApiProfile, apiKey: String?) {
@@ -126,5 +129,6 @@ class ApiProfileStore(context: Context, private val secrets: ApiSecrets = Keysto
         persist(current.copy(enabled = enabled))
     }
     @Synchronized fun includeContext(value: Boolean) { persist(current.copy(includeContext = value)) }
+    @Synchronized fun crossSourceContext(value: Boolean) { persist(current.copy(crossSourceContext = value)) }
     fun key(id: String): String = secrets.read(id)
 }

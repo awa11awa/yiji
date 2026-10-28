@@ -71,8 +71,13 @@ class QqSession(private val context: Context, private val store: QqStore,
             val id=UUID.nameUUIDFromBytes("$account|${m.scene}|${m.peerUin}|$key".toByteArray(Charsets.UTF_8)).toString()
             synchronized(recent) { if(id in recent) return }
             val encoded=JsonObject(MessageCodec.encode(m,source)+buildJsonObject { put("account",account);put("conversationName",contact.name) })
-            val envelope=QqEnvelope(id,account,m.scene.name,m.peerUin,encoded.toString())
-            if(store.stage(envelope,!MessageCodec.needsExpansion(m))) {
+            val payload = encoded.toString()
+            if (payload.toByteArray(Charsets.UTF_8).size > QqStore.MAX_PAYLOAD_BYTES) {
+                TraceLog.line(context, "[MESSAGE-LIMIT] 已跳过超过 8 MiB 的消息，继续接收其他消息")
+                return
+            }
+            val envelope=QqEnvelope(id,account,m.scene.name,m.peerUin,payload)
+            if(store.stage(envelope,!MessageCodec.needsExpansion(m),contact.since)) {
                 if(MessageCodec.needsExpansion(m)) expansions.send(envelope.id) else deliveries.trySend(Unit)
             }
             synchronized(recent) { recent.add(id);if(recent.size>4096) recent.remove(recent.first()) }

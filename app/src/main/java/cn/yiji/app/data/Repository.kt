@@ -19,10 +19,10 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     extractor: ScheduleExtractor? = null, val apiProfiles: ApiProfileStore = ApiProfileStore(preferences.context)) {
     private val extractor = extractor ?: HybridScheduleExtractor(preferences.context, apiProfiles, onCandidate = { id ->
         database.withTransaction {
-            dao.job(id)?.takeIf { it.state == "PROCESSING" }?.let {
-                dao.putJob(it.copy(candidate = true))
-                dao.raw(id)?.let { raw -> dao.putRaw(raw.copy(info = "正在请求所选云端模型，请等待；原文已保存")) }
-            }
+            val job = dao.job(id)?.takeIf { it.state == "PROCESSING" }
+                ?: throw CancellationException("通知已清空或停止处理")
+            dao.putJob(job.copy(candidate = true))
+            dao.raw(id)?.let { raw -> dao.putRaw(raw.copy(info = "正在请求所选云端模型，请等待；原文已保存")) }
         }
     })
     val dao = database.dao()
@@ -82,6 +82,9 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     private suspend fun storeRaw(title: String, body: String, source: String, packageName: String, receivedAt: Long): IngestResult = lock.withLock {
         require(body.isNotBlank() || title.isNotBlank()) { "通知文本不能为空" }
         require(body.length <= 16000 && title.length <= 200) { "通知内容过长，请分段导入" }
+        val clearedBefore = preferences.clearedBefore
+        if (clearedBefore > 0 && packageName != "manual" && receivedAt <= clearedBefore)
+            return@withLock IngestResult(newId(), IngestDisposition.IGNORED)
         val fingerprint = MessageDigest.getInstance("SHA-256").digest((packageName + "|" + title + "|" + body).toByteArray()).joinToString("") { "%02x".format(it) }
         if (packageName != "manual") dao.archivedFingerprint(fingerprint)?.let {
             return@withLock IngestResult(it, IngestDisposition.IGNORED)
@@ -101,9 +104,12 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         val previous = if (sameConversation) dao.conversation(raw.packageName, raw.title, raw.id, raw.receivedAt,
             raw.receivedAt - 86_400_000).map { it.copy(body = it.body.take(1500)) } else emptyList()
         val scoped = if (sameConversation) dao.conversationEvents(raw.packageName, raw.title) else emptyList()
-        val named = dao.allEvents().filter { it.status == "ACTIVE" && AssociationMatcher.similarity(raw.title + raw.body.take(300), it.title) >= .20 }
-            .sortedByDescending { it.updatedAt }.take(4)
-        return ExtractionInput(raw, previous.reversed(), (scoped + named).distinctBy { it.id }.take(8), forceCloud)
+        val named = if (apiProfiles.current.crossSourceContext) dao.allEvents()
+            .filter { it.status == "ACTIVE" && AssociationMatcher.similarity(raw.title + raw.body.take(300), it.title) >= .20 }
+            .sortedByDescending { it.updatedAt }.take(4) else emptyList()
+        val candidates = (scoped + named).distinctBy { it.id }.take(8)
+        return ExtractionInput(raw, previous.reversed(), candidates, forceCloud,
+            candidates.map { it.id }.toSet() - scoped.map { it.id }.toSet())
     }
 
     suspend fun processRaw(rawId: String) {
@@ -457,8 +463,14 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         }
         previousIds.forEach { reminders.cancel(it) }; reschedule(); schedule()
     }
-    suspend fun clear() = lock.withLock {
-        dao.allEvents().forEach { reminders.cancel(it.id) }
-        database.withTransaction { dao.clearEvents(); dao.clearRaw(); dao.clearIgnored() }
+    suspend fun clear() = cn.yiji.app.qq.QqIngress.exclusive {
+        lock.withLock {
+            val at = System.currentTimeMillis()
+            preferences.markCleared(at)
+            if (cn.yiji.app.qq.QqStore.exists(preferences.context))
+                cn.yiji.app.qq.QqStore(preferences.context).use { it.discardPending(at) }
+            dao.allEvents().forEach { reminders.cancel(it.id) }
+            database.withTransaction { dao.clearEvents(); dao.clearRaw(); dao.clearIgnored() }
+        }
     }
 }

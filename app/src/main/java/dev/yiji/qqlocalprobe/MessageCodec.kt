@@ -100,9 +100,14 @@ object MessageCodec {
         val resources = (listOf(longId) + encoded["segments"]!!.jsonArray.mapNotNull {
             it.jsonObject["resourceId"]?.jsonPrimitive?.content
         }).filter(String::isNotEmpty).distinct()
+        require(resources.size <= 16) { "转发资源数量超过上限" }
+        var expandedBytes = 0
         val expanded = resources.associateWith { id ->
             bot.getForwardedMessages(id, encoded["scene"]!!.jsonPrimitive.content == "GROUP").also {
                 check(it.isNotEmpty()) { "展开资源没有返回可解析消息" }
+                require(it.size <= 1000) { "转发消息数量超过上限" }
+                expandedBytes += forwarded(it).toString().toByteArray(Charsets.UTF_8).size
+                require(expandedBytes <= cn.yiji.app.qq.QqStore.MAX_PAYLOAD_BYTES / 2) { "转发正文超过上限" }
             }
         }
         return JsonObject(encoded + buildJsonObject {
@@ -112,6 +117,6 @@ object MessageCodec {
                 "${it.senderName}: ${text(it.segments)}"
             })
             put("contentState", "expanded")
-        })
+        }).also { require(it.toString().toByteArray(Charsets.UTF_8).size <= cn.yiji.app.qq.QqStore.MAX_PAYLOAD_BYTES) { "展开后的消息超过 8 MB 上限" } }
     }
 }

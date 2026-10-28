@@ -53,6 +53,7 @@ internal class BinaryReader(val bytes: ByteArray) {
     }
 
     fun readBytes(length: Int): ByteArray {
+        require(length >= 0 && length <= remaining) { "QQ field length exceeds packet bounds" }
         return bytes.copyOfRange(position, position + length).also {
             position += length
         }
@@ -71,10 +72,12 @@ internal class BinaryReader(val bytes: ByteArray) {
     }
 
     fun skip(length: Int) {
+        require(length >= 0 && length <= remaining) { "QQ skip exceeds packet bounds" }
         position += length
     }
 
     fun discard(length: Int) {
+        require(length >= 0 && length <= remaining) { "QQ discard exceeds packet bounds" }
         position += length
     }
 

@@ -1,6 +1,5 @@
 package org.ntqqrev.acidify.internal.context
 
-import dev.karmakrafts.kompress.Inflater
 import io.ktor.network.selector.*
 import io.ktor.network.sockets.*
 import io.ktor.utils.io.*
@@ -231,7 +230,7 @@ internal class PacketContext(client: AbstractClient) : AbstractContext(client) {
         while (currentCoroutineContext().isActive) {
             val header = input.readByteArray(4)
             val packetLength = header.readUInt32BE(0)
-            val packet = input.readByteArray(packetLength.toInt() - 4)
+            val packet = withTimeout(30_000L) { input.readByteArray(ProtocolLimits.frameBodySize(packetLength)) }
             val sso = client.parseSsoFrame(packet)
             logger.v { "[seq=${sso.sequence}] <- ${sso.command} (code=${sso.retCode})" }
             mapQueryMutex.withLock { pending.remove(sso.sequence) }.also {
@@ -431,7 +430,7 @@ internal class PacketContext(client: AbstractClient) : AbstractContext(client) {
         var payload = reader.readPrefixedBytes(Prefix.UINT_32 or Prefix.INCLUDE_PREFIX)
 
         if (isCompressed) {
-            payload = Inflater.inflate(payload, raw = false)
+            payload = ProtocolLimits.inflate(payload)
         }
 
         return if (retCode == 0) {

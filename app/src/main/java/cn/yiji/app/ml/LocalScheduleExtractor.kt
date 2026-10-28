@@ -65,7 +65,12 @@ class HybridScheduleExtractor(
             throw ExtractionFailure("API 密钥无法读取，请编辑当前配置并重新填写", waitingForApi = true)
         }
         if (key.isBlank()) throw ExtractionFailure("当前 API 配置缺少密钥，请填写后继续提取", waitingForApi = true)
-        val result = client.extract(profile, key, if (state.includeContext) input else input.copy(context = emptyList(), candidates = emptyList()))
+        val outgoing = when {
+            !state.includeContext -> input.copy(context = emptyList(), candidates = emptyList())
+            !state.crossSourceContext -> input.copy(candidates = input.candidates.filterNot { it.id in input.crossSourceCandidateIds })
+            else -> input
+        }
+        val result = client.extract(profile, key, outgoing)
         if (result.drafts.size != 1 || result.ignored || result.needsReview ||
             (result.operations.firstOrNull() ?: result.operation) != "NEW") return result
         return result.copy(drafts = listOf(RuleDrafts.supplement(result.drafts.single(), input.current.body,

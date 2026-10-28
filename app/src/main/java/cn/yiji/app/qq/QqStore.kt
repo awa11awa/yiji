@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import cn.yiji.app.data.readLimited
 import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
@@ -59,10 +60,16 @@ class QqStore(context: Context) : SQLiteOpenHelper(context.applicationContext, D
         } finally { db.endTransaction() }
     }
     fun checkpoint(c: QqContact, sequence: Long) { writableDatabase.execSQL("UPDATE contacts SET watermark=MAX(watermark,?) WHERE account=? AND scene=? AND uin=? AND selected=1 AND since=?",arrayOf<Any>(sequence,c.account,c.scene,c.uin,c.since)) }
-    fun stage(e: QqEnvelope, ready: Boolean): Boolean {
+    fun stage(e: QqEnvelope, ready: Boolean, expectedSince: Long? = null): Boolean {
         val db=writableDatabase
         db.beginTransaction()
         try {
+            val cutoff = get("discardBefore", "0").toLong()
+            if (cutoff > 0 && org.json.JSONObject(e.payload).optLong("timestamp") <= cutoff / 1000) return false
+            if (expectedSince != null) {
+                val current = contact(e.account, e.scene, e.peer)
+                if (current == null || !current.selected || current.since != expectedSince) return false
+            }
             val inserted=db.compileStatement("INSERT OR IGNORE INTO inbox(id,account,scene,peer,payload,ready,createdAt) VALUES(?,?,?,?,?,?,?)").use {
                 it.bindString(1,e.id);it.bindString(2,e.account);it.bindString(3,e.scene);it.bindLong(4,e.peer);it.bindBlob(5,pack(e.payload));it.bindLong(6,if(ready) 1 else 0);it.bindLong(7,System.currentTimeMillis());it.executeInsert()!=-1L
             }
@@ -78,11 +85,30 @@ class QqStore(context: Context) : SQLiteOpenHelper(context.applicationContext, D
     }
     fun complete(id: String, payload: String) { writableDatabase.update("inbox",ContentValues().apply { put("payload",pack(payload));put("ready",1) },"id=?",arrayOf(id)) }
     fun acknowledge(id: String) { writableDatabase.delete("inbox","id=?",arrayOf(id)) }
+    /** Advance the persistent selection boundary too, so in-flight history cannot refill the cleared spool. */
+    fun discardPending(now: Long) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val cutoff = maxOf(now, get("discardBefore", "0").toLong())
+            put("discardBefore", cutoff.toString())
+            db.delete("inbox", null, null)
+            db.execSQL("UPDATE contacts SET since=MAX(since,?), watermark=0 WHERE selected=1", arrayOf<Any>((cutoff / 1000 + 1) * 1000))
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
     fun forget() { val db=writableDatabase;db.beginTransaction();try { db.delete("inbox",null,null);db.delete("contacts",null,null);db.delete("config",null,null);db.setTransactionSuccessful() } finally { db.endTransaction() } }
     companion object {
         const val DATABASE="qq-capture.db"
         fun exists(context: Context)=context.getDatabasePath(DATABASE).isFile
-        fun pack(value: String): ByteArray = ByteArrayOutputStream().use { out -> GZIPOutputStream(out).use { it.write(value.toByteArray(Charsets.UTF_8)) };out.toByteArray() }
-        fun unpack(value: ByteArray): String = GZIPInputStream(value.inputStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        fun pack(value: String): ByteArray {
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            require(bytes.size <= MAX_PAYLOAD_BYTES) { "QQ 消息内容超过 8 MB 上限" }
+            return ByteArrayOutputStream().use { out -> GZIPOutputStream(out).use { it.write(bytes) };out.toByteArray() }
+        }
+        fun unpack(value: ByteArray): String = GZIPInputStream(value.inputStream()).use {
+            it.readLimited(MAX_PAYLOAD_BYTES).toString(Charsets.UTF_8)
+        }
+        const val MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
     }
 }

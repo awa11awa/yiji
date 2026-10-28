@@ -73,7 +73,7 @@ internal fun gzipUncompress(gz: ByteArray): ByteArray {
     val compressed = Buffer()
     gzBuf.readTo(compressed, byteCount = gzBuf.size - 8)
     val uncompressed = compressed.inflating().buffered().use { source ->
-        source.readByteArray()
+        ProtocolLimits.readBounded(source)
     }
 
     // Read trailer
