@@ -1,6 +1,6 @@
 # APK 发布约定
 
-正常交付的新版本 APK 同步发布 GitHub Release，包含 APK、源码 ZIP、更新说明和 SHA-256 校验文件。
+正常交付的新版本 APK 同步发布 GitHub Release，包含 APK、源码 ZIP、独立的消息分类模型 ZIP、更新说明和 SHA-256 校验文件。模型 ZIP 与 APK 使用同一份已评估的权重，由 scripts/package_message_model.py 打包。
 
 ## 新版本发布
 

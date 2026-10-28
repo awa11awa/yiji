@@ -18,3 +18,5 @@ __pycache__/
 
 qq-runtime/cache/
 qq-runtime/generated-assets/
+
+app/src/main/assets/tinybert/*.onnx

@@ -31,8 +31,8 @@ android {
         applicationId = "cn.yiji.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "2.2.0"
+        versionCode = 12
+        versionName = "2.2.1"
         ndk.abiFilters += "arm64-v8a"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -111,3 +111,11 @@ configurations.configureEach {
     exclude(group = "io.github.pdvrieze.xmlutil", module = "core")
 }
 apply(from = "qq-dependencies.gradle.kts")
+
+val prepareMessageModel by tasks.registering(Exec::class) {
+    inputs.files(rootProject.file("model/deployment_manifest.json"), rootProject.file("app/src/main/assets/tinybert/metadata.json"), rootProject.file("scripts/prepare_message_model.py"))
+    inputs.files(fileTree(rootProject.file("model")) { include("message-bert-*.part*") })
+    outputs.file(file("src/main/assets/tinybert/model.onnx"))
+    commandLine("python3", rootProject.file("scripts/prepare_message_model.py"))
+}
+tasks.named("preBuild") { dependsOn(prepareMessageModel) }

@@ -5,6 +5,8 @@ The old and new models are evaluated on identical deduplicated holdout rows.
 """
 import argparse, hashlib, json, random, shutil, time
 from pathlib import Path
+import offline_runtime
+
 import numpy as np
 import torch
 from transformers import AutoTokenizer, BertModel, get_linear_schedule_with_warmup

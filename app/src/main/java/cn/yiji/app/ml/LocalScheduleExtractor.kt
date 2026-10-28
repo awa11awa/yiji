@@ -27,7 +27,7 @@ class TinyBertMessageGate(context: Context) : MessageGate {
         private fun model(context: Context): TinyBertModel = instance ?: synchronized(this) {
             instance ?: run {
                 val metadata = JSONObject(context.assets.open("tinybert/metadata.json").bufferedReader().use { it.readText() })
-                val bytes = context.assets.open("tinybert/model.int8.onnx").use { it.readBytes() }
+                val bytes = context.assets.open("tinybert/${metadata.optString("model_file", "model.int8.onnx")}").use { it.readBytes() }
                 val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
                 require(digest == metadata.getString("model_sha256")) { "本地筛选模型校验失败" }
                 val vocabulary = context.assets.open("tinybert/vocab.txt").bufferedReader().use { it.readLines() }

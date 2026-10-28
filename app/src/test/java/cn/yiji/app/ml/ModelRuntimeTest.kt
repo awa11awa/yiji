@@ -40,4 +40,9 @@ class ModelRuntimeTest {
     @Test fun advertisementWordCannotOverrideTheLearnedRoute() = runBlocking {
         assertTrue(gate.classify("广告设计会议定于明天14:00在图书馆举行，请勿泄露验证码。").candidate)
     }
+
+    @Test fun continuedGraphSeparatesOldPhotosFromCurrentCheckinRequests() = runBlocking {
+        assertFalse(gate.classify("翻相册看到9月15日在学院208室参加运动会的旧合影。").candidate)
+        assertTrue(gate.classify("还没打校园跑卡的抓紧啦，这件事不能忘。").candidate)
+    }
 }

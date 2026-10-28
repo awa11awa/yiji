@@ -1,0 +1,957 @@
+{
+  "version": "2.2.1",
+  "task": "binary_message_routing",
+  "seed": 2026102802,
+  "labels": [
+    "CHAT",
+    "SCHEDULE"
+  ],
+  "initialization_sha256": "b02c46b769ab76daf01a8452294c650a61d4e81b71a411f67364cc9e3c818162",
+  "baseline_sha256": "2bdb753960a8e091aa6d773a472018b1e9223dc2e6d06e8ea1401b20d08258c1",
+  "optimizer_resumed": false,
+  "training_rows": {
+    "replay": 9000,
+    "confusion": 2280,
+    "general": 800,
+    "real": 30
+  },
+  "supplementary_training_rows": 6888,
+  "replay_training_rows": 9000,
+  "contrastive": false,
+  "retention": true,
+  "real_training_repeat": 16,
+  "training_windows": 21526,
+  "selection": "Deployment graph and epoch selected with fixed threshold 0.5 on validation only; unchanged previously used test sets provide development comparisons, not a new blind benchmark.",
+  "limitation": "Real notices are only 49 positive examples, assistant-labelled and grouped 30/9/10. No real CHAT negatives. Synthetic scores do not establish real-world or cloud-extraction accuracy.",
+  "data_sha256": {
+    "replay/train": "562703a67a00eba4c6efa8622959f3c91c69349b2343fbe666d850cfa6624bec",
+    "replay/valid": "30d1e011ae16326d652293caa6e5fafa2a3c3bcc7e32965a1c2690b88b1beb6c",
+    "replay/test": "2f704f71ef3df32e38b36aab6ec90222b0a132930d381b4c524fd5409057ed59",
+    "confusion/train": "2aec591c668c1f7b7510f5e8f3de15a1ed2b2150c0d4a497fb8e2d3d4efbf917",
+    "confusion/valid": "e02985e7bf050edd230e172c077c6c87f979622c72065a87e28ad7d106d3c422",
+    "confusion/test": "90320ad65cad6ebcfadc62e984df9f17a28774eba1228f410a5fb7c80fa11651",
+    "general/train": "365640c1dc9a3ffcdd3e9e1cd5522da542a9dd52ad79bfaac26b40f60330e9db",
+    "general/valid": "4dc2e3b1b4639be4b5bfce9559930b6111558ec9d7ea3bd1ce882f75f0ec2fba",
+    "general/test": "583037027817b530eb09c953fcbe418f27a0bc23cd16a94f54273f546d265b1c",
+    "real/train": "6bfc05148424693f85531bf3b5c79cfd0c7eab6fd75b880d7e0e3d79fd4cb70e",
+    "real/valid": "8ebca1083aed63b8044e1a28605289c28038b97b909f8bf1e200215441495913",
+    "real/test": "a14a59d6afbcaab1d42d85f56c8b4fa5a5c4cd5734a3171d6e76405c8494ea99"
+  },
+  "supplement_sha256": "b8bd4914dc9a72be6bad5c93689ce4fd961df52ce46f474cdbefa3e83076527e",
+  "annotation_review": "General validation family valid-0-3 says a teacher asks for grammar analysis, which can itself be an assignment. Strict scores include every row; selection additionally evaluates the unambiguous subset. No test rows relabelled or removed.",
+  "baseline_validation": {
+    "replay": {
+      "rows": 1600,
+      "tp": 789,
+      "tn": 733,
+      "fp": 67,
+      "fn": 11,
+      "schedule_recall": 0.98625,
+      "schedule_precision": 0.9217289719626168,
+      "accuracy": 0.95125
+    },
+    "confusion": {
+      "rows": 480,
+      "tp": 187,
+      "tn": 165,
+      "fp": 115,
+      "fn": 13,
+      "schedule_recall": 0.935,
+      "schedule_precision": 0.6192052980132451,
+      "accuracy": 0.7333333333333333
+    },
+    "general": {
+      "rows": 160,
+      "tp": 62,
+      "tn": 48,
+      "fp": 32,
+      "fn": 18,
+      "schedule_recall": 0.775,
+      "schedule_precision": 0.6595744680851063,
+      "accuracy": 0.6875,
+      "annotation_uncertain_rows": 23,
+      "unambiguous": {
+        "rows": 137,
+        "tp": 62,
+        "tn": 48,
+        "fp": 9,
+        "fn": 18,
+        "schedule_recall": 0.775,
+        "schedule_precision": 0.8732394366197183,
+        "accuracy": 0.8029197080291971
+      }
+    },
+    "real": {
+      "rows": 9,
+      "tp": 7,
+      "tn": 0,
+      "fp": 0,
+      "fn": 2,
+      "schedule_recall": 0.7777777777777778,
+      "schedule_precision": 1.0,
+      "accuracy": 0.7777777777777778
+    }
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "export": "uint8_channel",
+      "loss": 0.03943682143817077,
+      "validation": {
+        "replay": {
+          "rows": 1600,
+          "tp": 790,
+          "tn": 730,
+          "fp": 70,
+          "fn": 10,
+          "schedule_recall": 0.9875,
+          "schedule_precision": 0.9186046511627907,
+          "accuracy": 0.95
+        },
+        "confusion": {
+          "rows": 480,
+          "tp": 187,
+          "tn": 179,
+          "fp": 101,
+          "fn": 13,
+          "schedule_recall": 0.935,
+          "schedule_precision": 0.6493055555555556,
+          "accuracy": 0.7625
+        },
+        "general": {
+          "rows": 160,
+          "tp": 78,
+          "tn": 54,
+          "fp": 26,
+          "fn": 2,
+          "schedule_recall": 0.975,
+          "schedule_precision": 0.75,
+          "accuracy": 0.825,
+          "annotation_uncertain_rows": 23,
+          "unambiguous": {
+            "rows": 137,
+            "tp": 78,
+            "tn": 54,
+            "fp": 3,
+            "fn": 2,
+            "schedule_recall": 0.975,
+            "schedule_precision": 0.9629629629629629,
+            "accuracy": 0.9635036496350365
+          }
+        },
+        "real": {
+          "rows": 9,
+          "tp": 8,
+          "tn": 0,
+          "fp": 0,
+          "fn": 1,
+          "schedule_recall": 0.8888888888888888,
+          "schedule_precision": 1.0,
+          "accuracy": 0.8888888888888888
+        }
+      },
+      "eligible": false,
+      "score": 0.893151571428435,
+      "bytes": 11625720
+    },
+    {
+      "epoch": 1,
+      "export": "uint8_tensor",
+      "loss": 0.03943682143817077,
+      "validation": {
+        "replay": {
+          "rows": 1600,
+          "tp": 787,
+          "tn": 742,
+          "fp": 58,
+          "fn": 13,
+          "schedule_recall": 0.98375,
+          "schedule_precision": 0.9313609467455621,
+          "accuracy": 0.955625
+        },
+        "confusion": {
+          "rows": 480,
+          "tp": 169,
+          "tn": 266,
+          "fp": 14,
+          "fn": 31,
+          "schedule_recall": 0.845,
+          "schedule_precision": 0.9234972677595629,
+          "accuracy": 0.90625
+        },
+        "general": {
+          "rows": 160,
+          "tp": 80,
+          "tn": 73,
+          "fp": 7,
+          "fn": 0,
+          "schedule_recall": 1.0,
+          "schedule_precision": 0.9195402298850575,
+          "accuracy": 0.95625,
+          "annotation_uncertain_rows": 23,
+          "unambiguous": {
+            "rows": 137,
+            "tp": 80,
+            "tn": 57,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "real": {
+          "rows": 9,
+          "tp": 9,
+          "tn": 0,
+          "fp": 0,
+          "fn": 0,
+          "schedule_recall": 1.0,
+          "schedule_precision": 1.0,
+          "accuracy": 1.0
+        }
+      },
+      "eligible": false,
+      "score": 0.9576783035863086,
+      "bytes": 11564329
+    },
+    {
+      "epoch": 1,
+      "export": "uint8_reduced",
+      "loss": 0.03943682143817077,
+      "validation": {
+        "replay": {
+          "rows": 1600,
+          "tp": 313,
+          "tn": 771,
+          "fp": 29,
+          "fn": 487,
+          "schedule_recall": 0.39125,
+          "schedule_precision": 0.9152046783625731,
+          "accuracy": 0.6775
+        },
+        "confusion": {
+          "rows": 480,
+          "tp": 127,
+          "tn": 280,
+          "fp": 0,
+          "fn": 73,
+          "schedule_recall": 0.635,
+          "schedule_precision": 1.0,
+          "accuracy": 0.8479166666666667
+        },
+        "general": {
+          "rows": 160,
+          "tp": 55,
+          "tn": 80,
+          "fp": 0,
+          "fn": 25,
+          "schedule_recall": 0.6875,
+          "schedule_precision": 1.0,
+          "accuracy": 0.84375,
+          "annotation_uncertain_rows": 23,
+          "unambiguous": {
+            "rows": 137,
+            "tp": 55,
+            "tn": 57,
+            "fp": 0,
+            "fn": 25,
+            "schedule_recall": 0.6875,
+            "schedule_precision": 1.0,
+            "accuracy": 0.8175182481751825
+          }
+        },
+        "real": {
+          "rows": 9,
+          "tp": 8,
+          "tn": 0,
+          "fp": 0,
+          "fn": 1,
+          "schedule_recall": 0.8888888888888888,
+          "schedule_precision": 1.0,
+          "accuracy": 0.8888888888888888
+        }
+      },
+      "eligible": false,
+      "score": 0.7438231238838575,
+      "bytes": 11620123
+    },
+    {
+      "epoch": 1,
+      "export": "fp32",
+      "loss": 0.03943682143817077,
+      "validation": {
+        "replay": {
+          "rows": 1600,
+          "tp": 786,
+          "tn": 730,
+          "fp": 70,
+          "fn": 14,
+          "schedule_recall": 0.9825,
+          "schedule_precision": 0.9182242990654206,
+          "accuracy": 0.9475
+        },
+        "confusion": {
+          "rows": 480,
+          "tp": 188,
+          "tn": 266,
+          "fp": 14,
+          "fn": 12,
+          "schedule_recall": 0.94,
+          "schedule_precision": 0.9306930693069307,
+          "accuracy": 0.9458333333333333
+        },
+        "general": {
+          "rows": 160,
+          "tp": 80,
+          "tn": 70,
+          "fp": 10,
+          "fn": 0,
+          "schedule_recall": 1.0,
+          "schedule_precision": 0.8888888888888888,
+          "accuracy": 0.9375,
+          "annotation_uncertain_rows": 23,
+          "unambiguous": {
+            "rows": 137,
+            "tp": 80,
+            "tn": 57,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "real": {
+          "rows": 9,
+          "tp": 9,
+          "tn": 0,
+          "fp": 0,
+          "fn": 0,
+          "schedule_recall": 1.0,
+          "schedule_precision": 1.0,
+          "accuracy": 1.0
+        }
+      },
+      "eligible": true,
+      "score": 0.9686134544667966,
+      "bytes": 45598276
+    }
+  ],
+  "chat_ignore_threshold": 0.5,
+  "versions": {
+    "torch": "2.14.1+cpu",
+    "onnx": "1.23.2"
+  },
+  "learning_rates": {
+    "encoder": 6e-06,
+    "head": 1.8e-05
+  },
+  "development_iteration": "Additional paraphrases target error categories observed in the reused development test sets. Exact validation/test texts remain excluded from training. These benchmarks are not an independent final test.",
+  "selected": {
+    "stage": "frozen_encoder_checkin_head",
+    "epoch": 4,
+    "export": "fp32",
+    "loss": 0.02846819974225143,
+    "validation": {
+      "replay": {
+        "rows": 1600,
+        "tp": 785,
+        "tn": 729,
+        "fp": 71,
+        "fn": 15,
+        "schedule_recall": 0.98125,
+        "schedule_precision": 0.9170560747663551,
+        "accuracy": 0.94625
+      },
+      "confusion": {
+        "rows": 480,
+        "tp": 200,
+        "tn": 254,
+        "fp": 26,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 0.8849557522123894,
+        "accuracy": 0.9458333333333333
+      },
+      "general": {
+        "rows": 160,
+        "tp": 80,
+        "tn": 74,
+        "fp": 6,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 0.9302325581395349,
+        "accuracy": 0.9625,
+        "annotation_uncertain_rows": 23,
+        "unambiguous": {
+          "rows": 137,
+          "tp": 80,
+          "tn": 56,
+          "fp": 1,
+          "fn": 0,
+          "schedule_recall": 1.0,
+          "schedule_precision": 0.9876543209876543,
+          "accuracy": 0.9927007299270073
+        }
+      },
+      "real": {
+        "rows": 9,
+        "tp": 9,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      }
+    },
+    "eligible": true,
+    "score": 0.9679198378677863,
+    "bytes": 45598276,
+    "checkin_score": 0.9710455536842346,
+    "photo_score": 0.0006022691959515214
+  },
+  "accepted": true,
+  "model_sha256": "214976d1876a84089e43d0cfcda93c532238c91e1c93b55ecb445f3b04bad10f",
+  "bytes": 45598276,
+  "evaluation": {
+    "real_train": {
+      "baseline": {
+        "rows": 30,
+        "tp": 28,
+        "tn": 0,
+        "fp": 0,
+        "fn": 2,
+        "schedule_recall": 0.9333333333333333,
+        "schedule_precision": 1.0,
+        "accuracy": 0.9333333333333333
+      },
+      "new": {
+        "rows": 30,
+        "tp": 30,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      }
+    },
+    "real_valid": {
+      "baseline": {
+        "rows": 9,
+        "tp": 7,
+        "tn": 0,
+        "fp": 0,
+        "fn": 2,
+        "schedule_recall": 0.7777777777777778,
+        "schedule_precision": 1.0,
+        "accuracy": 0.7777777777777778
+      },
+      "new": {
+        "rows": 9,
+        "tp": 9,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      }
+    },
+    "real_test": {
+      "baseline": {
+        "rows": 10,
+        "tp": 10,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      },
+      "new": {
+        "rows": 10,
+        "tp": 10,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      }
+    },
+    "synthetic_replay_test": {
+      "baseline": {
+        "rows": 1600,
+        "tp": 792,
+        "tn": 800,
+        "fp": 0,
+        "fn": 8,
+        "schedule_recall": 0.99,
+        "schedule_precision": 1.0,
+        "accuracy": 0.995
+      },
+      "new": {
+        "rows": 1600,
+        "tp": 795,
+        "tn": 797,
+        "fp": 3,
+        "fn": 5,
+        "schedule_recall": 0.99375,
+        "schedule_precision": 0.9962406015037594,
+        "accuracy": 0.995
+      }
+    },
+    "synthetic_confusion_test": {
+      "baseline": {
+        "rows": 480,
+        "tp": 176,
+        "tn": 204,
+        "fp": 76,
+        "fn": 24,
+        "schedule_recall": 0.88,
+        "schedule_precision": 0.6984126984126984,
+        "accuracy": 0.7916666666666666
+      },
+      "new": {
+        "rows": 480,
+        "tp": 200,
+        "tn": 265,
+        "fp": 15,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 0.9302325581395349,
+        "accuracy": 0.96875
+      }
+    },
+    "synthetic_general_test": {
+      "baseline": {
+        "rows": 160,
+        "tp": 80,
+        "tn": 67,
+        "fp": 13,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 0.8602150537634409,
+        "accuracy": 0.91875
+      },
+      "new": {
+        "rows": 160,
+        "tp": 80,
+        "tn": 80,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      }
+    }
+  },
+  "seconds": 585.6,
+  "pre_head_selected": {
+    "epoch": 1,
+    "export": "fp32",
+    "loss": 0.03943682143817077,
+    "validation": {
+      "replay": {
+        "rows": 1600,
+        "tp": 786,
+        "tn": 730,
+        "fp": 70,
+        "fn": 14,
+        "schedule_recall": 0.9825,
+        "schedule_precision": 0.9182242990654206,
+        "accuracy": 0.9475
+      },
+      "confusion": {
+        "rows": 480,
+        "tp": 188,
+        "tn": 266,
+        "fp": 14,
+        "fn": 12,
+        "schedule_recall": 0.94,
+        "schedule_precision": 0.9306930693069307,
+        "accuracy": 0.9458333333333333
+      },
+      "general": {
+        "rows": 160,
+        "tp": 80,
+        "tn": 70,
+        "fp": 10,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 0.8888888888888888,
+        "accuracy": 0.9375,
+        "annotation_uncertain_rows": 23,
+        "unambiguous": {
+          "rows": 137,
+          "tp": 80,
+          "tn": 57,
+          "fp": 0,
+          "fn": 0,
+          "schedule_recall": 1.0,
+          "schedule_precision": 1.0,
+          "accuracy": 1.0
+        }
+      },
+      "real": {
+        "rows": 9,
+        "tp": 9,
+        "tn": 0,
+        "fp": 0,
+        "fn": 0,
+        "schedule_recall": 1.0,
+        "schedule_precision": 1.0,
+        "accuracy": 1.0
+      }
+    },
+    "eligible": true,
+    "score": 0.9686134544667966,
+    "bytes": 45598276
+  },
+  "head_refinement": {
+    "encoder_frozen": true,
+    "training_rows": 9240,
+    "new_checkin_rows": 1600,
+    "data_sha256": "321be676101c0f4a71467426cfd703ad5ad3194e34913ecfa1362db3cde3da93",
+    "history": [
+      {
+        "stage": "frozen_encoder_checkin_head",
+        "epoch": 1,
+        "export": "fp32",
+        "loss": 0.10871916658662517,
+        "validation": {
+          "replay": {
+            "rows": 1600,
+            "tp": 782,
+            "tn": 722,
+            "fp": 78,
+            "fn": 18,
+            "schedule_recall": 0.9775,
+            "schedule_precision": 0.9093023255813953,
+            "accuracy": 0.94
+          },
+          "confusion": {
+            "rows": 480,
+            "tp": 200,
+            "tn": 262,
+            "fp": 18,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.9174311926605505,
+            "accuracy": 0.9625
+          },
+          "general": {
+            "rows": 160,
+            "tp": 80,
+            "tn": 76,
+            "fp": 4,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.9523809523809523,
+            "accuracy": 0.975,
+            "annotation_uncertain_rows": 23,
+            "unambiguous": {
+              "rows": 137,
+              "tp": 80,
+              "tn": 57,
+              "fp": 0,
+              "fn": 0,
+              "schedule_recall": 1.0,
+              "schedule_precision": 1.0,
+              "accuracy": 1.0
+            }
+          },
+          "real": {
+            "rows": 9,
+            "tp": 9,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "eligible": false,
+        "score": 0.9718850521704041,
+        "bytes": 45598276,
+        "checkin_score": 0.939675509929657,
+        "photo_score": 0.0010629765456542373
+      },
+      {
+        "stage": "frozen_encoder_checkin_head",
+        "epoch": 2,
+        "export": "fp32",
+        "loss": 0.04345373102817042,
+        "validation": {
+          "replay": {
+            "rows": 1600,
+            "tp": 785,
+            "tn": 724,
+            "fp": 76,
+            "fn": 15,
+            "schedule_recall": 0.98125,
+            "schedule_precision": 0.9117305458768873,
+            "accuracy": 0.943125
+          },
+          "confusion": {
+            "rows": 480,
+            "tp": 200,
+            "tn": 255,
+            "fp": 25,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.8888888888888888,
+            "accuracy": 0.9479166666666666
+          },
+          "general": {
+            "rows": 160,
+            "tp": 80,
+            "tn": 75,
+            "fp": 5,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.9411764705882353,
+            "accuracy": 0.96875,
+            "annotation_uncertain_rows": 23,
+            "unambiguous": {
+              "rows": 137,
+              "tp": 80,
+              "tn": 56,
+              "fp": 1,
+              "fn": 0,
+              "schedule_recall": 1.0,
+              "schedule_precision": 0.9876543209876543,
+              "accuracy": 0.9927007299270073
+            }
+          },
+          "real": {
+            "rows": 9,
+            "tp": 9,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "eligible": true,
+        "score": 0.9676159996234183,
+        "bytes": 45598276,
+        "checkin_score": 0.9633042216300964,
+        "photo_score": 0.0006571333506144583
+      },
+      {
+        "stage": "frozen_encoder_checkin_head",
+        "epoch": 3,
+        "export": "fp32",
+        "loss": 0.03298482846083312,
+        "validation": {
+          "replay": {
+            "rows": 1600,
+            "tp": 785,
+            "tn": 722,
+            "fp": 78,
+            "fn": 15,
+            "schedule_recall": 0.98125,
+            "schedule_precision": 0.9096176129779838,
+            "accuracy": 0.941875
+          },
+          "confusion": {
+            "rows": 480,
+            "tp": 200,
+            "tn": 244,
+            "fp": 36,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.847457627118644,
+            "accuracy": 0.925
+          },
+          "general": {
+            "rows": 160,
+            "tp": 80,
+            "tn": 73,
+            "fp": 7,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.9195402298850575,
+            "accuracy": 0.95625,
+            "annotation_uncertain_rows": 23,
+            "unambiguous": {
+              "rows": 137,
+              "tp": 80,
+              "tn": 55,
+              "fp": 2,
+              "fn": 0,
+              "schedule_recall": 1.0,
+              "schedule_precision": 0.975609756097561,
+              "accuracy": 0.9854014598540146
+            }
+          },
+          "real": {
+            "rows": 9,
+            "tp": 9,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "eligible": false,
+        "score": 0.9601117531624279,
+        "bytes": 45598276,
+        "checkin_score": 0.9769200086593628,
+        "photo_score": 0.0007609776803292334
+      },
+      {
+        "stage": "frozen_encoder_checkin_head",
+        "epoch": 4,
+        "export": "fp32",
+        "loss": 0.02846819974225143,
+        "validation": {
+          "replay": {
+            "rows": 1600,
+            "tp": 785,
+            "tn": 729,
+            "fp": 71,
+            "fn": 15,
+            "schedule_recall": 0.98125,
+            "schedule_precision": 0.9170560747663551,
+            "accuracy": 0.94625
+          },
+          "confusion": {
+            "rows": 480,
+            "tp": 200,
+            "tn": 254,
+            "fp": 26,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.8849557522123894,
+            "accuracy": 0.9458333333333333
+          },
+          "general": {
+            "rows": 160,
+            "tp": 80,
+            "tn": 74,
+            "fp": 6,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.9302325581395349,
+            "accuracy": 0.9625,
+            "annotation_uncertain_rows": 23,
+            "unambiguous": {
+              "rows": 137,
+              "tp": 80,
+              "tn": 56,
+              "fp": 1,
+              "fn": 0,
+              "schedule_recall": 1.0,
+              "schedule_precision": 0.9876543209876543,
+              "accuracy": 0.9927007299270073
+            }
+          },
+          "real": {
+            "rows": 9,
+            "tp": 9,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "eligible": true,
+        "score": 0.9679198378677863,
+        "bytes": 45598276,
+        "checkin_score": 0.9710455536842346,
+        "photo_score": 0.0006022691959515214
+      }
+    ],
+    "selection": "Validation and two documented runtime regression anchors; no test texts trained. KL replay preserves the prior head on existing training rows.",
+    "seconds": 55.7
+  },
+  "training_lineage": [
+    {
+      "seed": 2026102802,
+      "initialization_sha256": "9847c6dd5ec8b86e6fd7ac85d132c7cd4f052d8b1f7f7a009a62a70a68e266f8",
+      "training_windows": 13238,
+      "selected": {
+        "epoch": 1,
+        "export": "fp32",
+        "loss": 0.038672814116222365,
+        "validation": {
+          "replay": {
+            "rows": 1600,
+            "tp": 792,
+            "tn": 727,
+            "fp": 73,
+            "fn": 8,
+            "schedule_recall": 0.99,
+            "schedule_precision": 0.915606936416185,
+            "accuracy": 0.949375
+          },
+          "confusion": {
+            "rows": 480,
+            "tp": 200,
+            "tn": 208,
+            "fp": 72,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.7352941176470589,
+            "accuracy": 0.85
+          },
+          "general": {
+            "rows": 160,
+            "tp": 80,
+            "tn": 57,
+            "fp": 23,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 0.7766990291262136,
+            "accuracy": 0.85625,
+            "annotation_uncertain_rows": 23,
+            "unambiguous": {
+              "rows": 137,
+              "tp": 80,
+              "tn": 57,
+              "fp": 0,
+              "fn": 0,
+              "schedule_recall": 1.0,
+              "schedule_precision": 1.0,
+              "accuracy": 1.0
+            }
+          },
+          "real": {
+            "rows": 9,
+            "tp": 9,
+            "tn": 0,
+            "fp": 0,
+            "fn": 0,
+            "schedule_recall": 1.0,
+            "schedule_precision": 1.0,
+            "accuracy": 1.0
+          }
+        },
+        "eligible": true,
+        "score": 0.9472698121850665,
+        "bytes": 45598276
+      },
+      "accepted": false
+    },
+    {
+      "seed": 2026102802,
+      "initialization_sha256": "e263ccb1f38ff5030db9e179698a1f29446a6a2be415e4bf9b5563d7bb21bc29",
+      "training_windows": 16638,
+      "stopped_after_epochs": 2
+    }
+  ],
+  "artifact_note": "Earlier selected exports were found inconsistent with their recorded hashes after metadata-preserving copies. Historical results are diagnostic only. The final export is copied without preserving stale timestamps and its SHA-256 is verified through packaging.",
+  "runtime_privacy": "ONNX Runtime telemetry disabled before initialization with ORT_DISABLE_TELEMETRY=1; Hugging Face telemetry disabled; tokenizer and model loaded from local files."
+}

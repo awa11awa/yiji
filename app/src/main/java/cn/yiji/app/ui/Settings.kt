@@ -188,7 +188,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
             ReminderChips(reminder) { reminder = it; prefs.defaultReminder = it }
         } }
         item { SettingsSection("本地模型") {
-            Text("TinyBERT 4L-312D · 聊天／日程二分类 v2.1", fontWeight = FontWeight.Bold)
+            Text("TinyBERT 4L-312D · 聊天／事项候选二分类 v2.2.1", fontWeight = FontWeight.Bold)
             Text("模型随安装包内置，仅在手机上筛选聊天与日程候选。时间、地点、类别及多事项提取由你选定的云端模型完成。", style = MaterialTheme.typography.bodyMedium)
             Text("筛选不确定时保留为候选。未配置 API 时只保存候选原文；误判的聊天消息可在通知箱送云端复核。训练主要使用合成样本，真实消息仍需核对。", style = MaterialTheme.typography.bodySmall)
         } }

@@ -1,0 +1,9 @@
+{
+  "version": "2.2.1",
+  "model_sha256": "214976d1876a84089e43d0cfcda93c532238c91e1c93b55ecb445f3b04bad10f",
+  "compression": "gzip",
+  "parts": [
+    "model/message-bert-v2.2.1.onnx.gz.part01",
+    "model/message-bert-v2.2.1.onnx.gz.part02"
+  ]
+}

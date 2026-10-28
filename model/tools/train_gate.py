@@ -10,6 +10,8 @@ import random
 import time
 from pathlib import Path
 
+import offline_runtime
+
 import numpy as np
 import torch
 from torch import nn

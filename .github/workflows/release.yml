@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
+      ORT_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
       YIJI_SIGNING_CERTIFICATE_SHA256: 041f228046082db2aaf03367fc29417b0620aadc45a4c5c05d42a08c579f0fea
     steps:
       - uses: actions/checkout@v4
@@ -112,7 +114,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import hashlib, os, pathlib, re, shutil, subprocess, xml.etree.ElementTree as ET
+          import hashlib, json, os, pathlib, re, shutil, subprocess, xml.etree.ElementTree as ET, zipfile
           version, tag = os.environ["VERSION"], os.environ["TAG"]
           target = pathlib.Path("release-artifacts")
           target.mkdir(exist_ok=True)
@@ -134,6 +136,14 @@ jobs:
               raise SystemExit("Refusing to publish a debuggable APK")
           source = target / f"yiji-{tag}-source.zip"
           subprocess.run(["git", "archive", "--format=zip", f"--prefix=yiji-{tag}/", "-o", str(source), os.environ["SOURCE_SHA"]], check=True)
+          model_version = json.loads(pathlib.Path("app/src/main/assets/tinybert/metadata.json").read_text())["version"]
+          model_bundle = target / f"yiji-message-bert-v{model_version}.zip"
+          subprocess.run(["python3", "scripts/package_message_model.py", "--output", str(model_bundle)], check=True)
+          metadata = json.loads(pathlib.Path("app/src/main/assets/tinybert/metadata.json").read_text())
+          with zipfile.ZipFile(apk) as archive:
+              bundled_model = archive.read("assets/tinybert/" + metadata.get("model_file", "model.int8.onnx"))
+              if hashlib.sha256(bundled_model).hexdigest() != metadata["model_sha256"]:
+                  raise SystemExit("APK does not contain the evaluated model")
           reports = list(pathlib.Path("app/build/test-results/testReleaseUnitTest").glob("TEST-*.xml"))
           if not reports:
               raise SystemExit("Unit test reports are missing")
@@ -150,7 +160,7 @@ jobs:
           notes += f"\n\n## 本次正式发布构建\n\n源码提交：{os.environ['SOURCE_SHA']}。GitHub Actions 验证 {tests} 项 release 变体测试通过、Lint 无错误，APK 版本、固定签名及不可调试标记校验通过。\n\n签名证书 SHA-256：{os.environ['YIJI_SIGNING_CERTIFICATE_SHA256']}。与此前交付的 v2.1.0 及之后版本使用同一密钥。v2.0.0 及更早版本可能需要先备份后重新安装。\n\n本发布包为 release 构建，最终文件校验值以 SHA256SUMS.txt 为准。\n"
           notes_file = target / f"RELEASE_NOTES_{tag}.md"
           notes_file.write_text(notes, encoding="utf-8")
-          assets = [apk, source, notes_file]
+          assets = [apk, source, notes_file, model_bundle]
           (target / "SHA256SUMS.txt").write_text("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in assets), encoding="utf-8")
           print(f"Prepared {len(assets) + 1} assets; {tests} tests passed.")
           PY

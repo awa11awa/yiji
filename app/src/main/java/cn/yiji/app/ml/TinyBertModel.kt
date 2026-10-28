@@ -16,7 +16,7 @@ class TinyBertModel(model: ByteArray, vocabulary: List<String>, metadata: JSONOb
     private val maxLength = metadata.getInt("max_length")
     private val stride = metadata.getInt("stride")
     private val ignoreThreshold = metadata.getDouble("chat_ignore_threshold")
-    private val environment = OrtEnvironment.getEnvironment()
+    private val environment = OrtEnvironment.getEnvironment().apply { setTelemetry(false) }
     private val session = OrtSession.SessionOptions().use { options ->
         options.setIntraOpNumThreads(2)
         options.setInterOpNumThreads(1)

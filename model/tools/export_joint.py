@@ -2,6 +2,8 @@
 import argparse, contextlib, json, shutil
 from pathlib import Path
 from collections import Counter
+import offline_runtime
+
 import numpy as np
 import torch, onnx, onnxruntime as ort
 from onnxruntime.quantization import quantize_dynamic, QuantType

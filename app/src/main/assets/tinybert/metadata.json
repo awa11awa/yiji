@@ -1,5 +1,5 @@
 {
-  "version": "2.1.2",
+  "version": "2.2.1",
   "task": "binary_gate",
   "labels": [
     "CHAT",
@@ -8,7 +8,10 @@
   "max_length": 384,
   "stride": 96,
   "chat_ignore_threshold": 0.5,
-  "model_sha256": "2bdb753960a8e091aa6d773a472018b1e9223dc2e6d06e8ea1401b20d08258c1",
+  "model_sha256": "214976d1876a84089e43d0cfcda93c532238c91e1c93b55ecb445f3b04bad10f",
   "base_model": "huawei-noah/TinyBERT_4L_zh",
-  "base_revision": "152bf15d86715b41dd89c1e03cf5664963d9b005"
+  "base_revision": "152bf15d86715b41dd89c1e03cf5664963d9b005",
+  "model_file": "model.onnx",
+  "training_report": "message_bert_training_report_v2.2.1.json",
+  "export": "fp32"
 }

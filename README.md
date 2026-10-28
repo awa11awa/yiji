@@ -1,4 +1,4 @@
-# 忆迹 v2.2.0
+# 忆迹 v2.2.1
 
 《忆迹——基于多源通知语义关联与时序冲突检测的重要事项智能管理系统》Android 应用。
 
@@ -6,7 +6,7 @@
 
 ## 开始使用
 
-1. 安装正式版 yiji-v2.2.0.apk，支持 ARM64、Android8.0及以上。
+1. 安装正式版 yiji-v2.2.1.apk，支持 ARM64、Android8.0及以上。
 2. 打开“设置 → API与模型 → 获取免费API·操作教程”。
 3. 在智谱开放平台创建自己的 API Key，编辑默认智谱配置，填写密钥。
 4. 测试连接、保存配置，开启云端识别并阅读发送内容说明。
@@ -66,7 +66,7 @@ API基础地址：https://open.bigmodel.cn/api/paas/v4
 
 ## 模型与训练
 
-本版已重新训练并替换为 CHAT/SCHEDULE 二分类 TinyBERT，模型约11.6MB。v2.1.2增加难负样本与时间不全的通知训练。实际训练、量化、新旧对比与限制见 model/MODEL_CARD.md、model/gate_training_report_v2.1.2.json。当前训练与独立划分均为合成资料，不能用合成分数宣称真实消息准确率。
+本版从保存的权重继续训练 CHAT/SCHEDULE 通用消息二分类 TinyBERT，加入脱敏通知及工作、学习、生活消息，模型约45.60MB。真实通知按活动分组，合成句式分开；开发集已用于多轮迭代，不能当作独立真实消息准确率。完整选择过程见 [模型说明](model/MODEL_CARD.md) 和 [训练报告](model/message_bert_training_report_v2.2.1.json)。Release 附独立模型 ZIP，与 APK 使用同一份权重。
 
 ## 数据兼容
 
@@ -76,13 +76,13 @@ Room数据库支持1→2→3及2→3升级，新增开放时间、时间语义�
 
 ## 构建与验证
 
-需要 JDK17/21、Android SDK35 与 Build Tools35.0.0。
+需要 Python3、JDK17/21、Android SDK35 与 Build Tools35.0.0。
 
     ./gradlew --no-daemon --console=plain --max-workers=2 testReleaseUnitTest lintRelease assembleRelease
 
-仅有SDK扩展安装时可附加 -Pyiji.sdkExtension=15。网络镜像配置见 scripts/mirrors.init.gradle.kts。Android构建使用已导出的模型，不触发重新训练。
+仅有SDK扩展安装时可附加 -Pyiji.sdkExtension=15。网络镜像配置见 scripts/mirrors.init.gradle.kts。Android构建从 model 目录的固定压缩分片还原已导出的模型并校验SHA-256，不触发重新训练；还原脚本只使用Python标准库。
 
-测试覆盖：实际INT8二分类推理、云端接口契约与错误处理、逐事项原文校验、独立操作与关联、API配置切换与保密、持久队列与中断恢复、旧库迁移、通知监听、备份及Compose导航。真实服务调用需用户自行填写有效Key；自动化测试不使用用户密钥，不证明真机网络、通知送达或云端识别准确率。
+测试覆盖：实际部署模型的二分类推理、云端接口契约与错误处理、逐事项原文校验、独立操作与关联、API配置切换与保密、持久队列与中断恢复、旧库迁移、通知监听、备份及Compose导航。真实服务调用需用户自行填写有效Key；自动化测试不使用用户密钥，不证明真机网络、通知送达或云端识别准确率。
 
 发布工作流从 GitHub Actions Repository Secrets 恢复固定签名，并校验证书 SHA-256；缺少密钥或证书不匹配时停止发布。密钥、密码和备份包不进入公开源码或 Release。开发者本地恢复及发布约定见 RELEASING.md。
 
