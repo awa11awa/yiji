@@ -11,8 +11,8 @@ object DateTimeResolver {
         val clean = text.replace(Regex("[【】（）()]"), "")
         val calendar = clean.replace("次日", "").replace("翌日", "").replace("第二天", "")
         val date = parseDate(calendar, reference, issues) ?: if (inheritDate && !hasDate(calendar)) reference else null
-        val time = if (precedingTime != null && !hasDate(clean)) parseClocks("$precedingTime 至 $clean").lastOrNull()
-            else parseClocks(clean).firstOrNull()
+        val time = if (precedingTime != null && !hasDate(clean)) parseClocks("$precedingTime 至 $clean", issues).lastOrNull()
+            else parseClocks(clean, issues).firstOrNull()
         if (time == null) return null
         return date?.plusDays(if (time.eveningMidnight) 1 else if (clean.contains("次日") || clean.contains("翌日") || clean.contains("第二天")) 1 else 0)
             ?.atTime(time.time)?.atZone(zone)?.toInstant()?.toEpochMilli()
@@ -72,7 +72,10 @@ object DateTimeResolver {
             }
         }
         Regex("(?<!\\d)(?:(下|本|这)个?月)?(\\d{1,2})[日号](?!楼|室)").find(normalized)?.let {
-            val month = if (it.groupValues[1] == "下") reference.plusMonths(1) else reference
+            val explicitMonth = it.groupValues[1]
+            val day = it.groupValues[2].toInt()
+            val month = if (explicitMonth == "下" || explicitMonth.isBlank() && day < reference.dayOfMonth)
+                reference.withDayOfMonth(1).plusMonths(1) else reference
             issues += if (it.groupValues[1].isBlank()) "原文只写日号，已按 ${month.year} 年 ${month.monthValue} 月解析，请核对" else "原文未写年份，已按 ${month.year} 年解析，请核对"
             return runCatching { month.withDayOfMonth(it.groupValues[2].toInt()) }.getOrNull()
         }
@@ -83,7 +86,7 @@ object DateTimeResolver {
 
     private data class ParsedTime(val time: LocalTime, val eveningMidnight: Boolean)
 
-    private fun parseClocks(text: String): List<ParsedTime> {
+    private fun parseClocks(text: String, issues: MutableList<String>? = null): List<ParsedTime> {
         val normalized = normalize(text)
         var lastPeriod = ""
         var previousEnd = 0
@@ -94,6 +97,8 @@ object DateTimeResolver {
             lastPeriod = period
             previousEnd = m.range.last + 1
             var hour = m.groupValues[2].toInt()
+            if (period.isBlank() && hour in 1..6)
+                issues?.add("原文未写上午或下午，已按 $hour 点解析，请核对")
             val minute = when {
                 m.groupValues[3].isNotBlank() -> m.groupValues[3].toInt()
                 m.groupValues[4].isNotBlank() -> m.groupValues[4].toInt()
@@ -104,7 +109,8 @@ object DateTimeResolver {
             }
             if (period in setOf("下午", "傍晚", "晚上", "晚间", "晚") && hour in 1..11) hour += 12
             if (period == "中午" && hour in 1..5) hour += 12
-            val eveningMidnight = period in setOf("晚上", "晚间", "晚") && hour == 12
+            val eveningMidnight = period in setOf("晚上", "晚间", "晚") && hour == 12 || hour == 24 && minute == 0
+            if (hour == 24 && minute == 0) hour = 0
             if (period in setOf("凌晨", "晚上", "晚间", "晚") && hour == 12) hour = 0
             runCatching { ParsedTime(LocalTime.of(hour, minute), eveningMidnight) }.getOrNull()
         }.toList()

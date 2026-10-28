@@ -31,6 +31,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     val rawMessages = dao.observeRaw()
     val suggestions = dao.observeSuggestions()
     val jobs = dao.observeJobs()
+    val ignoredItems = dao.observeIgnored()
 
     private fun schedule() {
         if (preferences.context is cn.yiji.app.YijiApplication) ExtractionWork.schedule(preferences.context)
@@ -41,7 +42,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     /** Synchronous entry for integrations and tests. Raw data is committed before inference. */
     suspend fun ingestWithResult(title: String, body: String, source: String, packageName: String = "manual", receivedAt: Long = System.currentTimeMillis()): IngestResult {
         val queued = storeRaw(title, body, source, packageName, receivedAt)
-        if (queued.disposition == IngestDisposition.DUPLICATE) return queued
+        if (queued.disposition in setOf(IngestDisposition.DUPLICATE, IngestDisposition.IGNORED)) return queued
         processRaw(queued.id)
         return IngestResult(queued.id, if (dao.raw(queued.id)?.state == "IGNORED") IngestDisposition.IGNORED else IngestDisposition.PENDING)
     }
@@ -49,7 +50,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     /** Notification/UI entry: commit first, then hand durable work to WorkManager. */
     suspend fun enqueueWithResult(title: String, body: String, source: String, packageName: String = "manual", receivedAt: Long = System.currentTimeMillis()): IngestResult {
         val result = storeRaw(title, body, source, packageName, receivedAt)
-        if (result.disposition != IngestDisposition.DUPLICATE) schedule()
+        if (result.disposition == IngestDisposition.QUEUED) schedule()
         return result
     }
 
@@ -57,6 +58,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     suspend fun enqueueQq(envelope: cn.yiji.app.qq.QqEnvelope, scheduleWork: Boolean = true): IngestResult {
         val result=lock.withLock {
             dao.raw(envelope.id)?.let { return@withLock IngestResult(it.id,IngestDisposition.DUPLICATE) }
+            if (dao.isArchivedRaw(envelope.id)) return@withLock IngestResult(envelope.id, IngestDisposition.IGNORED)
             val o=org.json.JSONObject(envelope.payload)
             val sender=o.optJSONObject("senderInfo")?.let { it.optString("groupCard").ifBlank { it.optString("nickname") } }
                 .orEmpty().ifBlank { o.optString("senderUin") }
@@ -73,7 +75,7 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
             database.withTransaction { dao.putRaw(raw);dao.putJob(MessageJob(raw.id)) }
             IngestResult(raw.id,IngestDisposition.QUEUED)
         }
-        if(scheduleWork && result.disposition!=IngestDisposition.DUPLICATE) schedule()
+        if(scheduleWork && result.disposition==IngestDisposition.QUEUED) schedule()
         return result
     }
 
@@ -81,6 +83,9 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         require(body.isNotBlank() || title.isNotBlank()) { "通知文本不能为空" }
         require(body.length <= 16000 && title.length <= 200) { "通知内容过长，请分段导入" }
         val fingerprint = MessageDigest.getInstance("SHA-256").digest((packageName + "|" + title + "|" + body).toByteArray()).joinToString("") { "%02x".format(it) }
+        if (packageName != "manual") dao.archivedFingerprint(fingerprint)?.let {
+            return@withLock IngestResult(it, IngestDisposition.IGNORED)
+        }
         if (packageName != "manual") dao.recentDuplicate(fingerprint, receivedAt - 86_400_000)?.let {
             return@withLock IngestResult(it.id, IngestDisposition.DUPLICATE)
         }
@@ -319,18 +324,22 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     }
     suspend fun dismiss(rawId: String) = lock.withLock {
         database.withTransaction {
-            dao.allSuggestions().filter { it.rawId == rawId && it.state == "PENDING" }.forEach { dao.putSuggestion(it.copy(state = "DISMISSED")) }
-            dao.deleteJob(rawId)
-            dao.raw(rawId)?.let { dao.putRaw(it.copy(info = "已由你忽略，原文保留")) }
-            reconcileRaw(rawId)
+            archiveRaw(rawId)
         }
     }
     suspend fun dismissSuggestion(id: String) = lock.withLock {
         database.withTransaction {
             val suggestion = dao.suggestion(id) ?: error("建议已不存在")
             require(suggestion.state == "PENDING") { "这条建议已经处理" }
-            dao.putSuggestion(suggestion.copy(state = "DISMISSED"))
-            reconcileRaw(suggestion.rawId)
+            val siblings = dao.allSuggestions().filter { it.rawId == suggestion.rawId && it.id != id }
+            if (siblings.none { it.state in setOf("PENDING", "CONFIRMED") }) archiveRaw(suggestion.rawId)
+            else {
+                val raw = dao.raw(suggestion.rawId) ?: error("原文已不存在")
+                archive("SUGGESTION", id, suggestion.title, raw.source, raw.body,
+                    Backup(emptyList(), listOf(raw), listOf(suggestion), emptyList(), emptyList()))
+                dao.putSuggestion(suggestion.copy(state = "DISMISSED"))
+                reconcileRaw(suggestion.rawId)
+            }
         }
     }
     private suspend fun reconcileRaw(rawId: String) {
@@ -343,20 +352,106 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
         }
         dao.raw(rawId)?.let { dao.putRaw(it.copy(state = state)) }
     }
-    suspend fun delete(id: String) = lock.withLock { reminders.cancel(id); dao.deleteEvent(id) }
-    suspend fun deleteRaw(id: String) = lock.withLock { dao.deleteRaw(id) }
+    private suspend fun archive(kind: String, traceId: String, title: String, source: String, preview: String,
+        backup: Backup, links: List<SourceLink> = emptyList(), fingerprint: String = "") {
+        val payload = org.json.JSONObject(BackupCodec.encode(backup)).put("savedLinks", org.json.JSONArray(links.map {
+            org.json.JSONObject().put("eventId", it.eventId).put("rawId", it.rawId)
+        })).toString()
+        dao.putIgnored(IgnoredItem(traceId = traceId, kind = kind, title = title, source = source,
+            preview = preview.take(500), payload = payload, fingerprint = fingerprint))
+    }
+
+    /** Caller holds the repository lock and transaction; late inference cannot recreate deleted raw data. */
+    private suspend fun archiveRaw(id: String) {
+        val raw = dao.raw(id) ?: return
+        archive("RAW", id, raw.title.ifBlank { raw.body.take(40) }, raw.source, raw.body,
+            Backup(emptyList(), listOf(raw), dao.allSuggestions().filter { it.rawId == id }, emptyList(), emptyList()),
+            dao.allLinks().filter { it.rawId == id }, raw.fingerprint)
+        dao.deleteRaw(id)
+    }
+
+    suspend fun delete(id: String) = lock.withLock {
+        database.withTransaction {
+            val event = dao.event(id) ?: error("事项已不存在")
+            val sources = dao.sources(id)
+            archive("EVENT", id, event.title, sources.firstOrNull()?.source ?: "手动录入", event.note,
+                Backup(listOf(event), sources, emptyList(), emptyList(), dao.history(id)),
+                dao.allLinks().filter { it.eventId == id })
+            dao.deleteEvent(id)
+        }
+        reminders.cancel(id)
+    }
+    suspend fun deleteRaw(id: String) = lock.withLock { database.withTransaction { archiveRaw(id) } }
+
+    /** Restores snapshots, history and surviving links; the scheduler skips elapsed reminder points. */
+    suspend fun restoreIgnored(id: String) = lock.withLock {
+        val item = dao.ignored(id) ?: error("忽略记录已不存在")
+        val backup = BackupCodec.decode(item.payload)
+        val links = org.json.JSONObject(item.payload).optJSONArray("savedLinks") ?: org.json.JSONArray()
+        database.withTransaction {
+            backup.events.forEach { event ->
+                require(dao.event(event.id) == null) { "事项已存在，请返回事项列表查看" }
+                dao.putEvent(event.copy(updatedAt = maxOf(System.currentTimeMillis(), event.updatedAt + 1)))
+            }
+            backup.raw.forEach { raw -> if (dao.raw(raw.id) == null) dao.putRaw(raw) }
+            backup.suggestions.forEach { suggestion ->
+                val current = dao.suggestion(suggestion.id)
+                require(current == null || current.state == "DISMISSED") { "这条建议已处理，请返回通知箱查看" }
+                require(dao.raw(suggestion.rawId)?.body == backup.raw.first { it.id == suggestion.rawId }.body) { "原文已修改，请重新整理当前原文" }
+                dao.putSuggestion(suggestion)
+            }
+            backup.history.forEach { dao.putHistory(it) }
+            for (index in 0 until links.length()) {
+                val link = links.getJSONObject(index)
+                val eventId = link.getString("eventId"); val rawId = link.getString("rawId")
+                if (dao.event(eventId) != null && dao.raw(rawId) != null) dao.putLink(SourceLink(eventId, rawId))
+            }
+            if (item.kind != "EVENT") backup.raw.forEach { raw ->
+                if (backup.suggestions.none { it.rawId == raw.id } && raw.state == "PENDING") dao.putJob(MessageJob(raw.id))
+                else reconcileRaw(raw.id)
+            }
+            dao.deleteIgnored(id)
+        }
+        backup.events.forEach { dao.event(it.id)?.let { event -> reminders.schedule(event) } }
+        if (item.kind != "EVENT" && backup.raw.any { raw -> raw.state == "PENDING" && backup.suggestions.none { it.rawId == raw.id } }) schedule()
+    }
+
+    suspend fun purgeIgnored(id: String) = lock.withLock { dao.deleteIgnored(id) }
+
+    suspend fun purgeExpiredIgnored(now: Long = System.currentTimeMillis()): Int = lock.withLock {
+        val days = preferences.ignoredRetentionDays
+        if (days == 0) return@withLock 0
+        dao.deleteIgnoredBefore(now - days * 86_400_000L)
+    }
+
+    suspend fun quickAdd(title: String, body: String, source: String, drafts: List<Draft>): List<String> = lock.withLock {
+        require(body.isNotBlank() && body.length <= 16000 && title.length <= 200 && drafts.isNotEmpty()) { "请粘贴有效通知，最多16000字" }
+        drafts.forEach { it.validationError()?.let { problem -> error(problem) } }
+        val raw = RawMessage(title = title, body = body, source = source, state = "CONFIRMED", info = "已按本地规则预览直接加入待办")
+        val saved = drafts.map { Event(title = it.title, category = it.category, kind = it.kind).withDraft(it, preferences.defaultReminder) }
+        database.withTransaction {
+            dao.putRaw(raw)
+            saved.forEach { event ->
+                dao.putEvent(event); dao.putLink(SourceLink(event.id, raw.id))
+                dao.putHistory(History(eventId = event.id, action = "从粘贴预览添加", after = BackupCodec.eventJson(event).toString()))
+            }
+        }
+        saved.forEach { reminders.schedule(it) }
+        saved.map { it.id }
+    }
     suspend fun reschedule() { dao.allEvents().forEach { reminders.schedule(it) } }
     suspend fun export(): String = lock.withLock { database.withTransaction {
-        BackupCodec.encode(Backup(dao.allEvents(), dao.allRaw(), dao.allSuggestions(), dao.allLinks(), dao.allHistory()))
+        BackupCodec.encode(Backup(dao.allEvents(), dao.allRaw(), dao.allSuggestions(), dao.allLinks(), dao.allHistory(), dao.allIgnored()))
     } }
     suspend fun restore(text: String) = lock.withLock {
         val backup = BackupCodec.decode(text) // Validate completely before replacing anything.
         val previousIds = dao.allEvents().map { it.id }
         database.withTransaction {
-            dao.clearEvents(); dao.clearRaw()
+            dao.clearEvents(); dao.clearRaw(); dao.clearIgnored()
             backup.events.forEach { dao.putEvent(it) }; backup.raw.forEach { dao.putRaw(it) }
             backup.suggestions.forEach { dao.putSuggestion(it) }; backup.links.forEach { dao.putLink(it) }
             backup.history.forEach { dao.putHistory(it) }
+            backup.ignored.forEach { dao.putIgnored(it) }
             backup.raw.filter { raw -> raw.state == "PENDING" && backup.suggestions.none { it.rawId == raw.id } }
                 .forEach { dao.putJob(MessageJob(it.id)) }
         }
@@ -364,6 +459,6 @@ class Repository(val database: YijiDatabase, val preferences: Preferences, priva
     }
     suspend fun clear() = lock.withLock {
         dao.allEvents().forEach { reminders.cancel(it.id) }
-        database.withTransaction { dao.clearEvents(); dao.clearRaw() }
+        database.withTransaction { dao.clearEvents(); dao.clearRaw(); dao.clearIgnored() }
     }
 }

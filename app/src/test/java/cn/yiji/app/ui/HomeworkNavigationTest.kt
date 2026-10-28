@@ -31,7 +31,7 @@ class HomeworkNavigationTest {
         compose.onNodeWithText("添加作业").assertIsDisplayed()
         compose.onNodeWithText("作业").assertIsSelected()
         compose.onNodeWithText("任务 · 可设截止").assertIsSelected()
-        compose.onNodeWithText("截止时间（选填）：未提供").assertIsDisplayed()
+        compose.onNodeWithText("截止时间（选填）：未知时间").assertIsDisplayed()
     }
 
     @Test fun incompleteNotificationAppearsOnHomeworkTab() {
@@ -46,7 +46,7 @@ class HomeworkNavigationTest {
         compose.onNodeWithText("待确认", substring = false).performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithText("待确认作业").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("待确认作业").assertIsDisplayed()
-        compose.onNodeWithText("未提供截止时间").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("未知截止时间").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("核对作业").performScrollTo().performClick()
         compose.onNodeWithText("识别确认").assertIsDisplayed()
     }

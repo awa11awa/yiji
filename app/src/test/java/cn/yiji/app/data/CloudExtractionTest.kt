@@ -108,6 +108,20 @@ class CloudExtractionTest {
         val error = runCatching { hybrid.extract(ExtractionInput(raw("明天开会"))) }.exceptionOrNull() as ExtractionFailure
         assertTrue(error.waitingForApi)
     }
+    @Test fun hybridAddsStructuredMissingFieldsAfterCloudExtraction() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("yiji-api-profiles", Context.MODE_PRIVATE).edit().clear().commit()
+        val store = ApiProfileStore(context, MemoryApiSecrets())
+        store.save(ApiProfile.glm, "fixture-key"); store.enable(true)
+        val body = "【班会通知】活动时间：10月24日18:30\n地点：创新楼102"
+        val client = CloudExtractionClient { _, _, _ -> ApiResponse(200, response(answer(item(body)))) }
+        val hybrid = HybridScheduleExtractor(context, store, client, MessageGate { GatePrediction(true, .99, false) })
+        val result = hybrid.extract(ExtractionInput(raw(body)))
+        assertEquals("班级安排", result.drafts.single().title)
+        assertNotNull(result.drafts.single().startAt)
+        assertEquals("创新楼102", result.drafts.single().location)
+        assertFalse(result.ignored)
+    }
     @Test fun explicitReviewCanBypassTheLocalChatDecision() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("yiji-api-profiles", Context.MODE_PRIVATE).edit().clear().commit()

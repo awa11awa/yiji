@@ -6,6 +6,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import cn.yiji.app.YijiApplication
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import java.lang.ref.WeakReference
 
 class YijiNotificationListener : NotificationListenerService() {
@@ -31,12 +32,20 @@ class YijiNotificationListener : NotificationListenerService() {
     }
 
     private fun enqueue(sbn: StatusBarNotification, recovery: Boolean = false) {
-        if (sbn.packageName == packageName || !app.repository.preferences.accepts(sbn.packageName)) return
+        if (sbn.packageName == packageName) return
         val application = app
+        val prefs = application.repository.preferences
+        if (prefs.collecting && prefs.packages.isEmpty()) {
+            application.notificationMonitor.recordOnce("no-sources", "系统", "尚未选择来源应用；请到设置 → 通知接入选择来源")
+            return
+        }
+        if (!prefs.accepts(sbn.packageName)) return
         application.notificationScope.launch {
-            val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }
-                .getOrDefault(sbn.packageName)
-            NotificationCollector(application.repository, application.notificationMonitor).collect(sbn, label, recovery)
+            application.notificationCaptureLock.withLock {
+                val label = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }
+                    .getOrDefault(sbn.packageName)
+                NotificationCollector(application.repository, application.notificationMonitor).collect(sbn, label, recovery)
+            }
         }
     }
 

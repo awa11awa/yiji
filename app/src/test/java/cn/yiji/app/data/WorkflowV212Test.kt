@@ -105,6 +105,10 @@ class WorkflowV212Test {
         repository.confirm(suggestion.id, suggestion.draft(), "NEW", null, 30)
         assertEquals("PENDING", database.dao().allRaw().single().state)
         repository.dismiss(database.dao().allRaw().single().id)
+        assertTrue(database.dao().allRaw().isEmpty())
+        assertEquals(1, database.dao().allEvents().size)
+        val archived = database.dao().allIgnored().single()
+        repository.restoreIgnored(archived.id)
         assertEquals("CONFIRMED", database.dao().allRaw().single().state)
     }
     @Test fun unrelatedUpdateKeepsChildrenAndExplicitRemovalIsRespected() {

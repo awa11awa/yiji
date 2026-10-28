@@ -86,6 +86,16 @@ data class History(
 
 @Dao
 interface YijiDao {
+    @Query("SELECT id,traceId,kind,title,source,preview,'' AS payload,fingerprint,ignoredAt FROM ignored_items ORDER BY ignoredAt DESC")
+    fun observeIgnored(): Flow<List<IgnoredItem>>
+    @Query("SELECT * FROM ignored_items") suspend fun allIgnored(): List<IgnoredItem>
+    @Query("SELECT * FROM ignored_items WHERE id = :id") suspend fun ignored(id: String): IgnoredItem?
+    @Query("SELECT EXISTS(SELECT 1 FROM ignored_items WHERE kind = 'RAW' AND traceId = :id)") suspend fun isArchivedRaw(id: String): Boolean
+    @Query("SELECT traceId FROM ignored_items WHERE kind = 'RAW' AND fingerprint = :fingerprint LIMIT 1") suspend fun archivedFingerprint(fingerprint: String): String?
+    @Upsert suspend fun putIgnored(item: IgnoredItem)
+    @Query("DELETE FROM ignored_items WHERE id = :id") suspend fun deleteIgnored(id: String)
+    @Query("DELETE FROM ignored_items") suspend fun clearIgnored()
+    @Query("DELETE FROM ignored_items WHERE ignoredAt < :before") suspend fun deleteIgnoredBefore(before: Long): Int
     @Query("SELECT * FROM message_jobs") fun observeJobs(): Flow<List<MessageJob>>
     @Query("SELECT * FROM events ORDER BY COALESCE(startAt, dueAt, 9223372036854775807), createdAt DESC") fun observeEvents(): Flow<List<Event>>
     // The list displays text; load structured QQ archives only for export/detail reads.
@@ -127,10 +137,17 @@ interface YijiDao {
 }
 
 @TypeConverters(StructuredFields::class)
-@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class], version = 4, exportSchema = true)
+@Database(entities = [Event::class, RawMessage::class, Suggestion::class, SourceLink::class, History::class, MessageJob::class, IgnoredItem::class], version = 5, exportSchema = true)
 abstract class YijiDatabase : RoomDatabase() {
     abstract fun dao(): YijiDao
     companion object {
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS ignored_items (id TEXT NOT NULL, traceId TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, source TEXT NOT NULL, preview TEXT NOT NULL, payload TEXT NOT NULL, fingerprint TEXT NOT NULL, ignoredAt INTEGER NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_ignored_items_traceId ON ignored_items (traceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_ignored_items_fingerprint ON ignored_items (fingerprint)")
+            }
+        }
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE raw_messages ADD COLUMN qqMetadata TEXT NOT NULL DEFAULT ''")

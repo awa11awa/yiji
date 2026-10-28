@@ -82,10 +82,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     .setData(Uri.parse("yiji://event/$id")).putExtra("eventId", id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val role = intent.getStringExtra("role") ?: return@launch
                 val point = event.draft().reminderPoints().firstOrNull { it.role == role } ?: return@launch
-                val verb = point.message
+                val body = ReminderText.body(event, point)
                 val notification = NotificationCompat.Builder(context, "yiji-reminders").setSmallIcon(R.drawable.ic_reminder)
-                    .setContentTitle(event.title).setContentText("$verb${if (event.location.isNotBlank()) " · ${event.location}" else ""}")
-                    .setStyle(NotificationCompat.BigTextStyle().bigText("$verb\n${event.action}"))
+                    .setContentTitle(if (point.role == "start") "待办提醒" else "事项时间提醒").setContentText(body)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(open).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH).build()
                 NotificationManagerCompat.from(context).notify("$id/$role", 1, notification)
                 ReminderScheduler(context).markFired(id, event.updatedAt, role, point.at)

@@ -86,8 +86,12 @@ class HomeworkRepositoryTest {
     @Test fun ignoringHomeworkRemovesPendingSuggestion() = runBlocking {
         val suggestion = importHomework("请完成课后习题第1、3题")
         repository.dismiss(suggestion.rawId)
-        assertEquals("DISMISSED", repository.dao.suggestion(suggestion.id)!!.state)
-        assertEquals("IGNORED", repository.dao.raw(suggestion.rawId)!!.state)
+        assertNull(repository.dao.suggestion(suggestion.id))
+        assertNull(repository.dao.raw(suggestion.rawId))
+        val archived = repository.dao.allIgnored().single()
+        assertEquals(suggestion.rawId, archived.traceId)
         assertTrue(repository.dao.allEvents().isEmpty())
+        repository.restoreIgnored(archived.id)
+        assertEquals("PENDING", repository.dao.suggestion(suggestion.id)!!.state)
     }
 }

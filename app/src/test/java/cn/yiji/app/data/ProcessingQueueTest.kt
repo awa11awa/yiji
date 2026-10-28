@@ -199,7 +199,8 @@ class ProcessingQueueTest {
         assertEquals("IGNORED", repository.dao.raw(manual.id)!!.state)
         assertEquals(0, repository.recoverMisclassifiedNotices())
         repository.dismiss(cloud.id)
-        assertEquals("IGNORED", repository.dao.raw(cloud.id)!!.state)
+        assertNull(repository.dao.raw(cloud.id))
+        assertTrue(repository.dao.allIgnored().any { it.traceId == cloud.id })
         assertEquals(0, repository.recoverMisclassifiedNotices())
     }
 

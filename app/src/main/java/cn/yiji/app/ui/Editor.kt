@@ -22,6 +22,7 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun PasteScreen(initial: String, initialTitle: String = "", submitLabel: String = "提取重要事项",
+    onQuickAdd: (suspend (String, String, String, List<Draft>) -> Unit)? = null,
     onImport: suspend (String, String, String) -> Unit) {
     var title by rememberSaveable(initialTitle) { mutableStateOf(initialTitle) }
     var body by rememberSaveable(initial) { mutableStateOf(initial) }
@@ -29,11 +30,37 @@ fun PasteScreen(initial: String, initialTitle: String = "", submitLabel: String 
     var error by remember { mutableStateOf<String?>(null) }
     var importing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val receivedAt = remember { System.currentTimeMillis() }
+    val preview = remember(body, title) {
+        if (body.isBlank() || body.length > 16000 || onQuickAdd == null) emptyList()
+        else RuleDrafts.extract(body, receivedAt, title)
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("复制班群、学校网站或邮件中的通知，粘贴到这里。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(title, { title = it.take(200) }, Modifier.fillMaxWidth(), label = { Text("通知标题（选填）") }, singleLine = true)
         OutlinedTextField(source, { source = it.take(60) }, Modifier.fillMaxWidth(), label = { Text("来源名称") }, singleLine = true)
         OutlinedTextField(body, { body = it; error = null }, Modifier.fillMaxWidth().heightIn(min = 220.dp), label = { Text("通知正文") }, supportingText = { Text("${body.length} / 16000 字") })
+        if (preview.isNotEmpty()) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("本地识别预览 · ${preview.size} 项", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                preview.forEach { draft ->
+                    Text(draft.title, fontWeight = FontWeight.SemiBold)
+                    Text(draftTime(draft), style = MaterialTheme.typography.bodySmall)
+                    Text("地点：${draft.location.ifBlank { "未知地址" }}", style = MaterialTheme.typography.bodySmall)
+                    draft.issues.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+                Button(onClick = {
+                    importing = true
+                    scope.launch {
+                        try { onQuickAdd?.invoke(title, body, source.ifBlank { "手动粘贴" }, preview) }
+                        catch (e: Exception) { error = e.message ?: "加入失败，请重试" }
+                        finally { importing = false }
+                    }
+                }, enabled = !importing, modifier = Modifier.fillMaxWidth()) { Text("直接加入待办（${preview.size}项）") }
+                Text("缺失信息会保留为未知；没有明确时刻的事项暂不安排时间提醒。", style = MaterialTheme.typography.bodySmall)
+                Text("包含多个独立活动的复杂通知，建议使用下方的提取入口逐项核对。", style = MaterialTheme.typography.bodySmall)
+            }
+        }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = {
             if (body.isBlank()) error = "请先粘贴通知内容"

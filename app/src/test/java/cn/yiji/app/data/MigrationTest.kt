@@ -8,6 +8,7 @@ import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,6 +19,35 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], application = android.app.Application::class)
 class MigrationTest {
+    @Test fun v221DatabaseKeepsQqArchivesAndGainsTheIgnoredArea() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "migration-v2.3-test.db"
+        context.deleteDatabase(name)
+        val schema = JSONObject(File("schemas/cn.yiji.app.data.YijiDatabase/4.json").readText()).getJSONObject("database")
+        val helper = FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(name).callback(object : SupportSQLiteOpenHelper.Callback(4) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    val entities = schema.getJSONArray("entities")
+                    for (index in 0 until entities.length()) {
+                        val entity = entities.getJSONObject(index)
+                        val marker = 36.toChar().toString() + "{TABLE_NAME}"
+                        db.execSQL(entity.getString("createSql").replace(marker, entity.getString("tableName")))
+                        val indices = entity.optJSONArray("indices") ?: JSONArray()
+                        for (j in 0 until indices.length()) db.execSQL(indices.getJSONObject(j).getString("createSql").replace(marker, entity.getString("tableName")))
+                    }
+                    db.execSQL("INSERT INTO raw_messages (id,title,body,source,packageName,receivedAt,state,fingerprint,info,qqMetadata) VALUES ('qq-old','群聊','原始正文','QQ','qq-protocol:fixture',1000,'PENDING','','','structured-archive')")
+                }
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+            }).build())
+        helper.writableDatabase; helper.close()
+        val database = Room.databaseBuilder(context, YijiDatabase::class.java, name).allowMainThreadQueries()
+            .addMigrations(YijiDatabase.MIGRATION_4_5).build()
+        try {
+            assertEquals("structured-archive", database.dao().raw("qq-old")!!.qqMetadata)
+            database.dao().putIgnored(IgnoredItem(traceId = newId(), kind = "RAW", title = "旧通知", source = "QQ", preview = "正文", payload = "{}"))
+            assertEquals(1, database.dao().allIgnored().size)
+        } finally { database.close(); context.deleteDatabase(name) }
+    }
     @Test fun v2DatabaseUpgradesWithoutChangingExistingTimesOrSuggestions() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "migration-v2.1.2-test.db"
@@ -42,7 +72,7 @@ class MigrationTest {
             }).build())
         helper.writableDatabase; helper.close()
         val database = Room.databaseBuilder(context, YijiDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4).build()
+            .addMigrations(YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4, YijiDatabase.MIGRATION_4_5).build()
         try {
             val event = database.dao().event("event-v2")!!
             assertEquals(5000L, event.startAt); assertEquals(6000L, event.endAt)
@@ -78,7 +108,7 @@ class MigrationTest {
         helper.writableDatabase
         helper.close()
         val database = Room.databaseBuilder(context, YijiDatabase::class.java, name).allowMainThreadQueries()
-            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4).build()
+            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4, YijiDatabase.MIGRATION_4_5).build()
         try {
             assertEquals("明晚交报告", database.dao().raw("old-raw")!!.body)
             database.dao().putJob(MessageJob("old-raw"))

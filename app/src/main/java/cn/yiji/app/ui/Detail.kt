@@ -47,7 +47,7 @@ fun DetailScreen(event: Event, repository: Repository, conflicts: List<TimeConfl
                         }
                     }
                     taskError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    if (event.location.isNotBlank()) Text("地点：${event.location}")
+                    Text("地点：${event.location.ifBlank { "未知地址" }}")
                     if (event.action.isNotBlank()) Text("需要完成：${event.action}")
                     Text(if (event.reminderMinutes < 0) "不提醒" else if (event.draft().reminderPoints().isEmpty()) "时间未完整，暂未安排时间提醒" else "提前 ${event.reminderMinutes} 分钟提醒", style = MaterialTheme.typography.bodySmall)
                     if (event.note.isNotBlank()) Text(event.note, style = MaterialTheme.typography.bodyMedium)
@@ -77,10 +77,10 @@ fun DetailScreen(event: Event, repository: Repository, conflicts: List<TimeConfl
                 if (h.after.isNotBlank()) Text("修改后：${snapshotText(h.after)}", style = MaterialTheme.typography.bodySmall)
             }
         } }
-        item { TextButton(onClick = { delete = true }) { Text("删除事项", color = MaterialTheme.colorScheme.error) } }
+        item { TextButton(onClick = { delete = true }) { Text("移入忽略区", color = MaterialTheme.colorScheme.error) } }
     }
-    if (delete) AlertDialog(onDismissRequest = { delete = false }, title = { Text("删除这个事项？") }, text = { Text("事项及其变更历史将被删除，关联的原始通知会保留。") },
-        confirmButton = { TextButton(onClick = { delete = false; onDelete() }) { Text("删除") } }, dismissButton = { TextButton(onClick = { delete = false }) { Text("保留") } })
+    if (delete) AlertDialog(onDismissRequest = { delete = false }, title = { Text("移入忽略区？") }, text = { Text("将撤销提醒，事项、变更历史及来源快照可在设置 → 忽略区恢复。") },
+        confirmButton = { TextButton(onClick = { delete = false; onDelete() }) { Text("移入忽略区") } }, dismissButton = { TextButton(onClick = { delete = false }) { Text("保留") } })
 }
 
 private fun snapshotText(value: String): String = runCatching {

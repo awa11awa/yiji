@@ -23,7 +23,7 @@ object QqIngress {
                 val batch=store.pending();var count=0
                 for(e in batch) {
                     if(store.selected(e.account,e.scene,e.peer)) {
-                        if(app.repository.enqueueQq(e,false).disposition!=IngestDisposition.DUPLICATE) count++
+                        if(app.repository.enqueueQq(e,false).disposition==IngestDisposition.QUEUED) count++
                     }
                     store.acknowledge(e.id)
                 }

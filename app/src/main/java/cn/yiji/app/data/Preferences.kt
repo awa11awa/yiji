@@ -23,5 +23,9 @@ class Preferences(context: Context) {
     var defaultReminder: Int
         get() = prefs.getInt("defaultReminder", 30)
         set(value) { prefs.edit().putInt("defaultReminder", value).apply() }
+    /** Zero keeps ignored records until the user deletes them. */
+    var ignoredRetentionDays: Int
+        get() = prefs.getInt("ignoredRetentionDays", 0)
+        set(value) { require(value in 0..3650); prefs.edit().putInt("ignoredRetentionDays", value).apply() }
     fun accepts(packageName: String): Boolean = collecting && packageName in packages
 }

@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
@@ -41,7 +42,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: () -> Unit = {}, onQq: () -> Unit = {}) {
+fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: () -> Unit = {}, onQq: () -> Unit = {}, onIgnored: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = repository.preferences
     val app = context.applicationContext as YijiApplication
@@ -113,11 +114,15 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
                 .distinctBy { it.first }.sortedBy { it.second }
         }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("settings-list"), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { ApiSettingsEntry(repository, onApi) }
         item { SettingsSection("QQ 采集") {
             Text("按人或群聊选择采集范围，接收端可在退出界面后继续运行。")
             OutlinedButton(onClick = onQq, modifier = Modifier.fillMaxWidth()) { Text("管理 QQ 登录与采集会话") }
+        } }
+        item { SettingsSection("忽略区") {
+            Text("手动删除或忽略的事项、通知可在这里查看和恢复；支持设置到期自动清理。")
+            OutlinedButton(onClick = onIgnored, modifier = Modifier.fillMaxWidth()) { Text("查看忽略区与自动清理设置") }
         } }
         item { SettingsSection("通知接入") {
             Text("授权后仅接收选定应用发布的系统通知。完整聊天记录可通过粘贴或分享文本导入。", style = MaterialTheme.typography.bodyMedium)
@@ -189,7 +194,7 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
         } }
         item { SettingsSection("本地模型") {
             Text("TinyBERT 4L-312D · 聊天／事项候选二分类 v2.2.1", fontWeight = FontWeight.Bold)
-            Text("模型随安装包内置，仅在手机上筛选聊天与日程候选。时间、地点、类别及多事项提取由你选定的云端模型完成。", style = MaterialTheme.typography.bodyMedium)
+            Text("模型随安装包内置，在手机上筛选聊天与日程候选；云端提取后由本地规则补齐明确的缺失字段。粘贴通知可预览规则结果并直接加入待办。", style = MaterialTheme.typography.bodyMedium)
             Text("筛选不确定时保留为候选。未配置 API 时只保存候选原文；误判的聊天消息可在通知箱送云端复核。训练主要使用合成样本，真实消息仍需核对。", style = MaterialTheme.typography.bodySmall)
         } }
         item { SettingsSection("数据与备份") {
@@ -204,13 +209,16 @@ fun SettingsScreen(repository: Repository, snackbar: SnackbarHostState, onApi: (
         confirmButton = { TextButton(onClick = { consent = false; openSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("前往系统授权") } }, dismissButton = { TextButton(onClick = { consent = false }) { Text("稍后") } })
     if (sourceDialog) AlertDialog(onDismissRequest = { sourceDialog = false }, title = { Text("选择通知来源") }, text = {
         if (apps == null) Text("正在读取应用列表…")
-        else LazyColumn(Modifier.heightIn(max = 360.dp)) { items(apps.orEmpty(), key = { it.first }) { (pkg, label) -> Row(Modifier.fillMaxWidth().clickable {
+        else Column {
+            TextButton(onClick = { packages = apps.orEmpty().map { it.first }.toSet(); prefs.packages = packages }) { Text("全选来源应用") }
+            LazyColumn(Modifier.heightIn(max = 360.dp)) { items(apps.orEmpty(), key = { it.first }) { (pkg, label) -> Row(Modifier.fillMaxWidth().clickable {
             packages = if (pkg in packages) packages - pkg else packages + pkg; prefs.packages = packages
         }, verticalAlignment = Alignment.CenterVertically) { Checkbox(pkg in packages, onCheckedChange = { checked -> packages = if (checked) packages + pkg else packages - pkg; prefs.packages = packages }); Text(label) } } }
+        }
     }, confirmButton = { TextButton(onClick = { sourceDialog = false }) { Text("完成") } })
-    if (clearDialog) AlertDialog(onDismissRequest = { clearDialog = false }, title = { Text("清空所有本地数据？") }, text = { Text("将删除所有事项、通知原文和变更历史，并撤销提醒。建议先导出备份。") },
+    if (clearDialog) AlertDialog(onDismissRequest = { clearDialog = false }, title = { Text("清空所有本地数据？") }, text = { Text("将删除所有事项、通知原文、变更历史和忽略区恢复副本，并撤销提醒。建议先导出备份。") },
         confirmButton = { TextButton(onClick = { clearDialog = false; work { repository.clear(); monitor.clear(); "本地数据已清空" } }) { Text("清空") } }, dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("保留") } })
-    if (restoreText != null) AlertDialog(onDismissRequest = { restoreText = null }, title = { Text("恢复备份？") }, text = { Text("备份会替换当前的事项、通知和历史，并重新安排提醒。") },
+    if (restoreText != null) AlertDialog(onDismissRequest = { restoreText = null }, title = { Text("恢复备份？") }, text = { Text("备份会替换当前的事项、通知、历史与忽略区，并重新安排提醒。") },
         confirmButton = { TextButton(onClick = { val data = restoreText!!; restoreText = null; work { repository.restore(data); "备份已恢复" } }) { Text("恢复") } }, dismissButton = { TextButton(onClick = { restoreText = null }) { Text("取消") } })
 }
 

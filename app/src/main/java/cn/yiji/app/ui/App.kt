@@ -18,10 +18,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.core.app.NotificationManagerCompat
+import cn.yiji.app.YijiApplication
+import cn.yiji.app.platform.YijiNotificationListener
 import cn.yiji.app.core.*
 import cn.yiji.app.data.*
 import kotlinx.coroutines.delay
@@ -29,7 +36,7 @@ import kotlinx.coroutines.launch
 import java.time.*
 import java.time.format.DateTimeFormatter
 
-fun formatTime(time: Long?): String = time?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm")) } ?: "待补充时间"
+fun formatTime(time: Long?): String = time?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm")) } ?: "未知时间"
 fun typeLabel(type: String): String = when (type) { "MERGE" -> "合并来源"; "UPDATE" -> "更新事项"; "CANCEL" -> "取消事项"; else -> "新建事项" }
 fun statusLabel(status: String): String = when (status) { "DONE" -> "已完成"; "CANCELLED" -> "已取消"; else -> "进行中" }
 fun fieldTime(at: Long?, info: TimeField): String = when {
@@ -37,13 +44,13 @@ fun fieldTime(at: Long?, info: TimeField): String = when {
     info.precision == "DATE" -> "${info.date}（未给时刻）"
     info.precision == "TBD" -> "时间待定"
     info.text.isNotBlank() -> "${info.text}（待核对）"
-    else -> "未提供"
+    else -> "未知时间"
 }
 fun draftTime(d: Draft): String = if (d.kind == "DEADLINE") buildList {
     if (d.opensAt != null || d.timing.open.precision != "NONE") add("${fieldTime(d.opensAt, d.timing.open)} 开放报名")
     if (d.dueAt != null || d.timing.due.precision != "NONE" || d.timing.due.text.isNotBlank()) add("${fieldTime(d.dueAt, d.timing.due)} 截止")
     if (d.subtasks.isNotEmpty()) add("${d.subtasks.count { it.done }}/${d.subtasks.size} 子任务完成 · 各项截止见详情")
-    if (isEmpty()) add("未提供截止时间")
+    if (isEmpty()) add("未知截止时间")
 }.joinToString("\n") else "${fieldTime(d.startAt, d.timing.start)} 开始" +
     if (d.endAt != null || d.timing.end.precision != "NONE") " — ${fieldTime(d.endAt, d.timing.end)} 结束" else " · 结束时间未提供"
 fun eventTime(e: Event): String = draftTime(e.draft())
@@ -72,6 +79,33 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
     var pasteText by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val app = context.applicationContext as YijiApplication
+    val monitor by app.notificationMonitor.status.collectAsStateWithLifecycle()
+    val lifecycle = LocalLifecycleOwner.current
+    var configurationRevision by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) configurationRevision++ }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+    }
+    val hint = remember(configurationRevision, monitor.connected, route, tabName) {
+        setupHint(NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName),
+            repository.preferences.collecting, repository.preferences.packages.size, monitor.connected)
+    }
+    fun refreshNow() {
+        if (refreshing) return
+        scope.launch {
+            refreshing = true
+            try {
+                val retried = repository.resumeWaiting()
+                YijiNotificationListener.reconnectAndRecover(context)
+                snackbar.showSnackbar("已请求补采通知栏，重新排队 $retried 条待处理原文")
+            } catch (e: Exception) { snackbar.showSnackbar(e.message ?: "刷新未完成，请重试") }
+            finally { refreshing = false }
+        }
+    }
     val conflicts = remember(events) { ConflictDetector.detect(events.map { it.existing() }) }
     LaunchedEffect(requestedEvent, sharedText, requestedQq) {
         if (requestedEvent != null) route = "detail:$requestedEvent"
@@ -92,6 +126,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
         route == "newHomework" -> "添加作业"
         route == "paste" -> "导入通知文本"
         route == "conflicts" -> "时间冲突"
+        route == "ignored" -> "忽略区"
         route == "qq" -> "QQ 采集"
         route == "api" -> "API 与模型"
         route == "apiGuide" -> "获取 API 教程"
@@ -137,7 +172,12 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                         })
                     else EmptyState("通知已不存在", "请返回通知箱。", Icons.Default.Inbox)
                 }
-                route == "paste" -> PasteScreen(pasteText, onImport = { title, text, source ->
+                route == "ignored" -> IgnoredScreen(repository, snackbar)
+                route == "paste" -> PasteScreen(pasteText, onQuickAdd = { title, text, source, drafts ->
+                    repository.quickAdd(title, text, source, drafts)
+                    route = ""; tabName = AppTab.EVENTS.name
+                    snackbar.showSnackbar("已加入 ${drafts.size} 项待办，原文已关联保存")
+                }, onImport = { title, text, source ->
                     val result = repository.enqueueWithResult(title, text, source)
                     val rawId = result.id
                     val homework = repository.dao.allSuggestions().any { it.rawId == rawId && it.category == Categories.HOMEWORK }
@@ -168,12 +208,13 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                     if (e != null) DetailScreen(e, repository, conflicts.filter { it.firstId == e.id || it.secondId == e.id },
                         onEdit = { route = "edit:${e.id}" }, onConflict = { route = "conflicts" },
                         onStatus = { status -> perform { repository.setStatus(e.id, status) } },
-                        onDelete = { perform { repository.delete(e.id); route = "" } })
+                        onDelete = { perform { repository.delete(e.id); route = ""; snackbar.showSnackbar("已移入忽略区，可在设置中恢复") } })
                     else EmptyState("正在读取事项", "如果事项已被删除，请返回列表。", Icons.AutoMirrored.Filled.EventNote)
                 }
                 route == "conflicts" -> ConflictScreen(conflicts, events) { route = "detail:$it" }
                 tab == AppTab.HOME -> HomeScreen(events, raw.count { it.state == "PENDING" }, conflicts.size, { route = "detail:$it" },
-                    { tabName = AppTab.INBOX.name }, { route = "conflicts" }, { route = "paste" }, { tabName = AppTab.SETTINGS.name })
+                    { tabName = AppTab.INBOX.name }, { route = "conflicts" }, { route = "paste" }, { tabName = AppTab.SETTINGS.name },
+                    hint = hint, onRefresh = ::refreshNow, refreshing = refreshing)
                 tab == AppTab.EVENTS -> EventsScreen(events, seen, readStore::markRead) { route = "detail:$it" }
                 tab == AppTab.HOMEWORK -> HomeworkScreen(events, suggestions, raw,
                     onEvent = { route = "detail:$it" }, onConfirm = { route = "confirm:$it" },
@@ -186,7 +227,7 @@ fun YijiApp(repository: Repository, requestedEvent: String?, sharedText: String?
                     onComplete = { route = "complete:$it" }, onIgnoreRaw = { perform { repository.dismiss(it) } },
                     onManual = { perform { route = "confirm:${repository.manualSuggestion(it)}" } }, jobs = jobs,
                     seen = seen, onRead = readStore::markRead)
-                else -> SettingsScreen(repository, snackbar, onApi = { route = "api" }, onQq = { route = "qq" })
+                else -> SettingsScreen(repository, snackbar, onApi = { route = "api" }, onQq = { route = "qq" }, onIgnored = { route = "ignored" })
             }
         }
     }
@@ -213,7 +254,7 @@ fun EventCard(event: Event, onClick: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(event.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(eventTime(event), style = MaterialTheme.typography.bodySmall, color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                if (event.location.isNotBlank()) Text(event.location, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                Text(event.location.ifBlank { "未知地址" }, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 Text("${event.category} · ${if (overdue) "已逾期" else statusLabel(event.status)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -222,12 +263,25 @@ fun EventCard(event: Event, onClick: () -> Unit) {
 
 @Composable
 fun HomeScreen(events: List<Event>, pending: Int, conflicts: Int, onEvent: (String) -> Unit, onPending: () -> Unit,
-    onConflicts: () -> Unit, onPaste: () -> Unit, onSettings: () -> Unit) {
+    onConflicts: () -> Unit, onPaste: () -> Unit, onSettings: () -> Unit, hint: SetupHint = SetupHint.NONE,
+    onRefresh: () -> Unit = {}, refreshing: Boolean = false) {
     val today = LocalDate.now()
     val active = events.filter { it.status == "ACTIVE" }
     val todays = active.filter { it.anchor?.let { t -> Instant.ofEpochMilli(t).atZone(ZoneId.systemDefault()).toLocalDate() == today } == true }
     val due = active.filter { it.kind == "DEADLINE" && it.dueAt != null && it.dueAt <= System.currentTimeMillis() + 7 * 86_400_000L }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 6.dp, 20.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (hint != SetupHint.NONE) item {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("系统通知接入 · ${setupHintTitle(hint)}", fontWeight = FontWeight.Bold)
+                    Text(setupHintBody(hint), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onSettings) { Text("前往设置") }
+                }
+            }
+        }
+        item { OutlinedButton(onClick = onRefresh, enabled = !refreshing, modifier = Modifier.fillMaxWidth()) {
+            Text(if (refreshing) "正在刷新…" else "立即刷新通知与识别队列")
+        } }
         item {
             Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(26.dp)) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -366,8 +420,8 @@ fun InboxScreen(raw: List<RawMessage>, suggestions: List<Suggestion>, onConfirm:
         }
     }
     if (deleteId != null) AlertDialog(onDismissRequest = { deleteId = null }, title = { Text("删除原始通知？") },
-        text = { Text("这条原文及其来源关联将被删除，已经确认的事项会保留。") },
-        confirmButton = { TextButton(onClick = { onDelete(deleteId!!); deleteId = null }) { Text("删除") } }, dismissButton = { TextButton(onClick = { deleteId = null }) { Text("保留") } })
+        text = { Text("原文及其来源关联将移入忽略区，可在设置中恢复；已经确认的事项会保留。") },
+        confirmButton = { TextButton(onClick = { onDelete(deleteId!!); deleteId = null }) { Text("移入忽略区") } }, dismissButton = { TextButton(onClick = { deleteId = null }) { Text("保留") } })
 }
 
 @Composable

@@ -14,6 +14,11 @@ class NotificationMonitor(context: Context) {
     private val prefs = context.getSharedPreferences("yiji-notification-status", Context.MODE_PRIVATE)
     private val mutableStatus = MutableStateFlow(NotificationStatus(records = readRecords()))
     val status = mutableStatus.asStateFlow()
+    private val onceKeys = mutableSetOf<String>()
+
+    @Synchronized fun recordOnce(key: String, source: String, result: String) {
+        if (onceKeys.add(key)) record(source, result)
+    }
 
     @Synchronized fun connection(connected: Boolean) {
         mutableStatus.value = mutableStatus.value.copy(connected = connected)
@@ -33,6 +38,7 @@ class NotificationMonitor(context: Context) {
     }
 
     @Synchronized fun clear() {
+        onceKeys.clear()
         mutableStatus.value = mutableStatus.value.copy(records = emptyList())
         prefs.edit().remove("records").apply()
     }

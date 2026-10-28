@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 class YijiApplication : Application(), androidx.work.Configuration.Provider {
     override val workManagerConfiguration: androidx.work.Configuration
@@ -19,9 +20,10 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
     val collectionSupervisor by lazy { CollectionSupervisor(this) }
     // Reconnecting the listener must not cancel notifications already queued in this process.
     val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val notificationCaptureLock = Mutex()
     val repository: Repository by lazy {
         Repository(Room.databaseBuilder(this, YijiDatabase::class.java, "yiji.db")
-            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4).build(), Preferences(this), ReminderScheduler(this))
+            .addMigrations(YijiDatabase.MIGRATION_1_2, YijiDatabase.MIGRATION_2_3, YijiDatabase.MIGRATION_3_4, YijiDatabase.MIGRATION_4_5).build(), Preferences(this), ReminderScheduler(this))
     }
     override fun onCreate() {
         super.onCreate()
@@ -32,6 +34,8 @@ class YijiApplication : Application(), androidx.work.Configuration.Provider {
         ReminderScheduler(this).createChannel()
         notificationScope.launch { repository.recoverMisclassifiedNotices() }
         ExtractionWork.schedule(this)
+        cn.yiji.app.platform.IgnoredCleanup.sync(this)
+        notificationScope.launch { repository.purgeExpiredIgnored() }
         collectionSupervisor.refresh()
     }
 }
