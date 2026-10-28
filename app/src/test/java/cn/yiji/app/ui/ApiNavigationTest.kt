@@ -42,12 +42,13 @@ class ApiNavigationTest {
         openApi()
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("添加"))
         compose.onNodeWithText("添加").performClick()
-        compose.onNodeWithText("添加 API 配置").assertIsDisplayed()
-        compose.onNodeWithText("自定义").performClick()
-        compose.onNodeWithText("API Key").assertIsDisplayed()
-        compose.onNodeWithText("获取模型列表").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("测试连接").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("保存配置").performScrollTo().assertIsDisplayed()
+        fun editorText(text: String) = compose.onNode(hasText(text) and hasAnyAncestor(isDialog()))
+        editorText("添加 API 配置").assertIsDisplayed()
+        editorText("自定义").performClick()
+        editorText("API Key").assertIsDisplayed()
+        editorText("获取模型列表").performScrollTo().assertIsDisplayed()
+        editorText("测试连接").performScrollTo().assertIsDisplayed()
+        editorText("保存配置").performScrollTo().assertIsDisplayed()
     }
     @Test fun crossSourceContextRequiresItsOwnConfirmationAndCanBeRevoked() {
         val store = (compose.activity.application as YijiApplication).repository.apiProfiles

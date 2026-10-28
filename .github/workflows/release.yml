@@ -4,7 +4,7 @@ on:
   push:
     branches: ['main']
     tags: ['v*']
-    paths: ['app/build.gradle.kts']
+    paths: ['app/build.gradle.kts', 'app/src/**', 'qq-runtime/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
